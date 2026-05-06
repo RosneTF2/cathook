@@ -1,0 +1,14 @@
+# /^-----^\   data: 2026-04-30
+# V  o o  V  plik: libs/funchook/_deps/distorm-src/.gitignore
+#  |  Y  |   autor: pupnoodle
+#   \ Q /
+#   / - \
+#   |    \
+#   |     \     )
+#   || (___\====
+
+*.egg-info
+*.py[cod]
+*.so
+build
+dist
