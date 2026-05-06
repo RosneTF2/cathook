@@ -1,14 +1,3 @@
-/*
-/^-----^\   data: 2026-04-30
-V  o o  V  plik: libs/funchook/test/test_main.c
- |  Y  |   autor: pupnoodle
-  \ Q /
-  / - \
-  |    \
-  |     \     )
-  || (___\====
-*/
-
 /* -*- indent-tabs-mode: nil -*-
  */
 #if defined(__linux__) && !defined(_GNU_SOURCE)

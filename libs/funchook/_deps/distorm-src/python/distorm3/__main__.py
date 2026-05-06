@@ -1,12 +1,3 @@
-# /^-----^\   data: 2026-04-30
-# V  o o  V  plik: libs/funchook/_deps/distorm-src/python/distorm3/__main__.py
-#  |  Y  |   autor: pupnoodle
-#   \ Q /
-#   / - \
-#   |    \
-#   |     \     )
-#   || (___\====
-
 # Based on work by Mario Vilas, http://breakingcode.wordpress.com, licensed under BSD in 2016
 
 import distorm3

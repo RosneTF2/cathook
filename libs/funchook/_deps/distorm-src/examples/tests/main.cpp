@@ -1,14 +1,3 @@
-/*
-/^-----^\   data: 2026-04-30
-V  o o  V  plik: libs/funchook/_deps/distorm-src/examples/tests/main.cpp
- |  Y  |   autor: pupnoodle
-  \ Q /
-  / - \
-  |    \
-  |     \     )
-  || (___\====
-*/
-
 // diStorm64 library sample
 // http://ragestorm.net/distorm/
 // Arkon, Stefan, 2005

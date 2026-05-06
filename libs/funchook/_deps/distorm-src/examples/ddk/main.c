@@ -1,15 +1,4 @@
 /*
-/^-----^\   data: 2026-04-30
-V  o o  V  plik: libs/funchook/_deps/distorm-src/examples/ddk/main.c
- |  Y  |   autor: pupnoodle
-  \ Q /
-  / - \
-  |    \
-  |     \     )
-  || (___\====
-*/
-
-/*
  * main.c
  * Sample kernel driver to show how diStorm can be easily compiled and used in Ring 0.
  *

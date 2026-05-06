@@ -1,13 +1,4 @@
 #!/usr/bin/env python
-# /^-----^\   data: 2026-04-30
-# V  o o  V  plik: libs/funchook/_deps/distorm-src/setup.py
-#  |  Y  |   autor: pupnoodle
-#   \ Q /
-#   / - \
-#   |    \
-#   |     \     )
-#   || (___\====
-
 
 import os
 import os.path

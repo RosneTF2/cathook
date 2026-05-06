@@ -1,15 +1,4 @@
 /*
-/^-----^\   data: 2026-04-30
-V  o o  V  plik: libs/funchook/_deps/distorm-src/src/insts.c
- |  Y  |   autor: pupnoodle
-  \ Q /
-  / - \
-  |    \
-  |     \     )
-  || (___\====
-*/
-
-/*
 insts.c
 
 diStorm3 - Powerful disassembler for X86/AMD64

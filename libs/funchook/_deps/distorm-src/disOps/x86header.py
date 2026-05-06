@@ -1,12 +1,3 @@
-# /^-----^\   data: 2026-04-30
-# V  o o  V  plik: libs/funchook/_deps/distorm-src/disOps/x86header.py
-#  |  Y  |   autor: pupnoodle
-#   \ Q /
-#   / - \
-#   |    \
-#   |     \     )
-#   || (___\====
-
 #
 # x86header.py
 #

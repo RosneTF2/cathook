@@ -1,14 +1,3 @@
-/*
-/^-----^\   data: 2026-04-30
-V  o o  V  plik: libs/funchook/test/unit_test.c
- |  Y  |   autor: pupnoodle
-  \ Q /
-  / - \
-  |    \
-  |     \     )
-  || (___\====
-*/
-
 #include "unit_test.h"
 #include <stdio.h>
 

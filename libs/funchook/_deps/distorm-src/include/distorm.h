@@ -1,14 +1,3 @@
-/*
-/^-----^\   data: 2026-04-30
-V  o o  V  plik: libs/funchook/_deps/distorm-src/include/distorm.h
- |  Y  |   autor: pupnoodle
-  \ Q /
-  / - \
-  |    \
-  |     \     )
-  || (___\====
-*/
-
 /* diStorm 3.5.2 */
 
 /*

@@ -1,12 +1,3 @@
-# /^-----^\   data: 2026-04-30
-# V  o o  V  plik: libs/funchook/_deps/distorm-src/examples/java/Makefile
-#  |  Y  |   autor: pupnoodle
-#   \ Q /
-#   / - \
-#   |    \
-#   |     \     )
-#   || (___\====
-
 UNAME_S := $(shell uname -s)
 
 ifeq ($(UNAME_S),Darwin)

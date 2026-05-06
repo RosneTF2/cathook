@@ -1,14 +1,3 @@
-/*
-/^-----^\   data: 2026-04-30
-V  o o  V  plik: libs/funchook/test/test.h
- |  Y  |   autor: pupnoodle
-  \ Q /
-  / - \
-  |    \
-  |     \     )
-  || (___\====
-*/
-
 #ifndef TEST_H
 #define TEST_H
 

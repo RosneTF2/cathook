@@ -1,12 +1,3 @@
-# /^-----^\   data: 2026-04-30
-# V  o o  V  plik: libs/funchook/_deps/distorm-src/python/test_distorm3.py
-#  |  Y  |   autor: pupnoodle
-#   \ Q /
-#   / - \
-#   |    \
-#   |     \     )
-#   || (___\====
-
 #
 # Gil Dabah 2006
 # Tests for diStorm3

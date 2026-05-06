@@ -1,15 +1,4 @@
 /*
-/^-----^\   data: 2026-04-30
-V  o o  V  plik: libs/funchook/include/funchook.h
- |  Y  |   autor: pupnoodle
-  \ Q /
-  / - \
-  |    \
-  |     \     )
-  || (___\====
-*/
-
-/*
  * This file is part of Funchook.
  * https://github.com/kubo/funchook
  *

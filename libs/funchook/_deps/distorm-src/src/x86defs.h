@@ -1,15 +1,4 @@
 /*
-/^-----^\   data: 2026-04-30
-V  o o  V  plik: libs/funchook/_deps/distorm-src/src/x86defs.h
- |  Y  |   autor: pupnoodle
-  \ Q /
-  / - \
-  |    \
-  |     \     )
-  || (___\====
-*/
-
-/*
 x86defs.h
 
 diStorm3 - Powerful disassembler for X86/AMD64

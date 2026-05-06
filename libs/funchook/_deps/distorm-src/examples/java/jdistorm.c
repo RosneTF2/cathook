@@ -1,15 +1,4 @@
 /*
-/^-----^\   data: 2026-04-30
-V  o o  V  plik: libs/funchook/_deps/distorm-src/examples/java/jdistorm.c
- |  Y  |   autor: pupnoodle
-  \ Q /
-  / - \
-  |    \
-  |     \     )
-  || (___\====
-*/
-
-/*
  * diStorm3 JNI wrapper.
  * Gil Dabah, October 2010.
  */

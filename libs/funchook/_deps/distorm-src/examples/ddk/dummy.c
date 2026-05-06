@@ -1,14 +1,3 @@
-/*
-/^-----^\   data: 2026-04-30
-V  o o  V  plik: libs/funchook/_deps/distorm-src/examples/ddk/dummy.c
- |  Y  |   autor: pupnoodle
-  \ Q /
-  / - \
-  |    \
-  |     \     )
-  || (___\====
-*/
-
 // Since the DDK's nmake is limited with directories, we will bypass that with this simple hack.
 // Thanks to Razvan Hobeanu.
 // Sep 2009.

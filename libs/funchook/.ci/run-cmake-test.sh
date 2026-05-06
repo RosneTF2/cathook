@@ -1,13 +1,4 @@
 #!/bin/sh
-# /^-----^\   data: 2026-04-30
-# V  o o  V  plik: libs/funchook/.ci/run-cmake-test.sh
-#  |  Y  |   autor: pupnoodle
-#   \ Q /
-#   / - \
-#   |    \
-#   |     \     )
-#   || (___\====
-
 set -e
 
 cd `dirname $0`

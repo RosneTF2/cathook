@@ -1,12 +1,3 @@
-# /^-----^\   data: 2026-04-30
-# V  o o  V  plik: libs/funchook/_deps/distorm-src/python/distorm3/__init__.py
-#  |  Y  |   autor: pupnoodle
-#   \ Q /
-#   / - \
-#   |    \
-#   |     \     )
-#   || (___\====
-
 # :[diStorm3}: Python binding
 # Based on diStorm64 Python binding by Mario Vilas
 # Initial support for decompose API added by Roee Shenberg

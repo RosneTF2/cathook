@@ -1,14 +1,3 @@
-<!--
-/^-----^\   data: 2026-04-30
-V  o o  V  plik: libs/funchook/_deps/distorm-src/README.md
- |  Y  |   autor: pupnoodle
-  \ Q /
-  / - \
-  |    \
-  |     \     )
-  || (___\====
--->
-
 Powerful Disassembler Library For x86/AMD64
 -----------
 

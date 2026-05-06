@@ -1,12 +1,3 @@
-# /^-----^\   data: 2026-04-30
-# V  o o  V  plik: libs/funchook/_deps/distorm-src/python/distorm3/_generated.py
-#  |  Y  |   autor: pupnoodle
-#   \ Q /
-#   / - \
-#   |    \
-#   |     \     )
-#   || (___\====
-
 
 Mnemonics = {
 0x679: "SLDT", 0x62: "POPA", 0x910: "UNPCKHPS", 0x115: "POPF", 0x11db: "CMPLTSS",

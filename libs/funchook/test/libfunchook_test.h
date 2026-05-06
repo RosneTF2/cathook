@@ -1,14 +1,3 @@
-/*
-/^-----^\   data: 2026-04-30
-V  o o  V  plik: libs/funchook/test/libfunchook_test.h
- |  Y  |   autor: pupnoodle
-  \ Q /
-  / - \
-  |    \
-  |     \     )
-  || (___\====
-*/
-
 #ifndef LIBFUNCHOOK_TEST_H
 #define LIBFUNCHOOK_TEST_H
 #include <stdint.h>

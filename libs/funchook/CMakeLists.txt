@@ -1,12 +1,3 @@
-# /^-----^\   data: 2026-04-30
-# V  o o  V  plik: libs/funchook/CMakeLists.txt
-#  |  Y  |   autor: pupnoodle
-#   \ Q /
-#   / - \
-#   |    \
-#   |     \     )
-#   || (___\====
-
 cmake_minimum_required(VERSION 3.11)
 
 project(funchook VERSION 2.0.0 LANGUAGES C ASM)

@@ -1,14 +1,3 @@
-<!--
-/^-----^\   data: 2026-04-30
-V  o o  V  plik: libs/funchook/README.md
- |  Y  |   autor: pupnoodle
-  \ Q /
-  / - \
-  |    \
-  |     \     )
-  || (___\====
--->
-
 Funchook - an API hook library
 ==============================
 
