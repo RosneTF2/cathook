@@ -136,3 +136,4 @@ RH - motivation and some methods<br>
 nullworks - original cathook creators<br>
 DrCoomer - cheat i based the "cathook" on<br>
 GatoPotato658 - Unibox. without him there would be nothing<br>
+Salmon - Salmonpaste.
