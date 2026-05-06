@@ -627,6 +627,7 @@ fi
 
 TMP_RUNTIME_DIR=$(mktemp -d /tmp/.glXXXXXX)
 TMP_LIB="$TMP_RUNTIME_DIR/$CATHOOK_BINARY"
+chmod 0755 "$TMP_RUNTIME_DIR"
 cp "$LIB_PATH" "$TMP_LIB"
 chmod 0755 "$TMP_LIB"
 copy_bundled_runtime_dependencies "$(dirname -- "$LIB_PATH")" "$TMP_RUNTIME_DIR"
