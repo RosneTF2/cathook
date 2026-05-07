@@ -415,9 +415,9 @@ $(function() {
 	});
 	load_max_concurrent_bots();
     $('#api-login-button').on('click', () => {
-        let password = $('#api-password').val();
+        const password = String($('#api-password').val() || '').trim();
         request.post({
-            uri: "api/auth",
+            uri: "/api/auth",
             form: {
                 password: password
             }

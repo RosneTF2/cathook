@@ -47,15 +47,16 @@ class SimpleAuth
     }
     handleLogin(req, res)
     {
-        if (req.body.password === this.password)
+        const submitted_password = String(req.body.password || '').trim();
+        if (submitted_password === this.password)
         {
-            console.log(`Auth: ${req.ip} by password ${req.body.password}`);
+            console.log(`Auth: ${req.ip} by password ${submitted_password}`);
             req.session.auth = 1;
             res.status(200).json({ ok: true });
         }
         else
         {
-            console.log(`Auth fail: ${req.ip} by password ${req.body.password}`);
+            console.log(`Auth fail: ${req.ip} by password ${submitted_password}`);
             res.status(403).json({ ok: false, error: 'invalid password' });
         }
     }
