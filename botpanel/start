@@ -61,7 +61,6 @@ fix_workspace_permissions() {
         -name "stop" -o \
         -name "update" -o \
         -name "install-catbots" -o \
-        -name "install-instances" -o \
         -name "remove-legacy" -o \
         -name "uninstall" \
     \) -exec chmod 0755 {} +
