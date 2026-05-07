@@ -851,6 +851,7 @@ start_panel() {
     restart_panel_if_running
 
     cd "$web_panel_root"
+    rm -f /tmp/cat-webpanel-password 2>/dev/null || true
 
     if [ "$(id -u)" -eq 0 ]; then
         start_detached_panel env \
@@ -888,7 +889,7 @@ start_panel() {
 
 print_panel_password() {
     for _ in 1 2 3 4 5; do
-        if [ -f /tmp/cat-webpanel-password ]; then
+        if [ -s /tmp/cat-webpanel-password ]; then
             echo "IPC Web Panel password: $(cat /tmp/cat-webpanel-password)"
             return
         fi
