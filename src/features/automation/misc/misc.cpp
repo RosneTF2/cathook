@@ -1186,13 +1186,15 @@ void automation_controller::run_auto_class_select()
     return;
   }
 
-  if (localplayer->get_tf_class() != tf_class::UNDEFINED)
+  const auto selected_class = config.misc.automation.class_selected;
+  const bool is_selected_class = localplayer->get_tf_class() == selected_class;
+  if (localplayer->is_alive() && is_selected_class)
   {
     return;
   }
 
   char join_class_command[64]{};
-  std::snprintf(join_class_command, sizeof(join_class_command), "joinclass %s", class_name_for_join(config.misc.automation.class_selected));
+  std::snprintf(join_class_command, sizeof(join_class_command), "joinclass %s", class_name_for_join(selected_class));
   engine->client_cmd_unrestricted(join_class_command);
   engine->client_cmd_unrestricted("menuclosed");
   next_class_action_time_ = global_vars->realtime + auto_class_interval;
