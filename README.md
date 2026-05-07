@@ -6,6 +6,10 @@
   Cathook is a Team Fortress 2 Linux internal DLC.
 </p>
 
+##
+
+USE OpenGL, VULKAN ISNT SUPPORTED!!
+
 ## Risk of Manual Ban
 
 Doesnt matter what cheat you use, get ready for a gameban.
