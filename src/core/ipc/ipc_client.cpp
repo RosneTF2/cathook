@@ -23,13 +23,16 @@ V  o o  V  file: src/core/ipc/ipc_client.cpp
 #include "games/tf2/sdk/interfaces/steam_runtime.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <charconv>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <unordered_set>
 #include <utility>
 #include <unistd.h>
@@ -57,6 +60,9 @@ bool was_connected_to_server = false;
 std::uint32_t cached_local_account_id = 0;
 std::chrono::steady_clock::time_point next_connect_attempt{};
 std::chrono::steady_clock::time_point game_telemetry_ready_since{};
+std::mutex ipc_mutex{};
+std::thread ipc_worker{};
+std::atomic_bool ipc_worker_running = false;
 std::unordered_set<std::uint32_t> local_ipc_friends{};
 
 [[nodiscard]] auto textmode_build() -> bool
@@ -497,6 +503,37 @@ void update_telemetry_locked()
   data.ingame.z = origin.z;
 }
 
+void update_basic_telemetry_locked()
+{
+  if (ipc_state == nullptr || !valid_local_peer_id())
+  {
+    return;
+  }
+
+  auto& peer = ipc_state->peer_data[local_peer_id];
+  auto& data = ipc_state->peer_user_data[local_peer_id];
+  const auto now = now_seconds();
+
+  peer.heartbeat = now;
+  data.heartbeat = now;
+  data.textmode = textmode_build();
+  data.ts_injected = injected_time;
+
+  if (data.friendid == 0)
+  {
+    const auto account_id = local_account_id_from_steam();
+    if (account_id != 0)
+    {
+      data.friendid = static_cast<unsigned int>(account_id);
+    }
+  }
+
+  if (data.name[0] == '\0')
+  {
+    copy_cstr(data.name, sizeof(data.name), bot_name_from_environment());
+  }
+}
+
 void collect_commands(std::vector<pending_command>& commands_out)
 {
   commands_out.clear();
@@ -575,37 +612,8 @@ void process_collected_commands(const std::vector<pending_command>& commands_to_
   }
 }
 
-} // namespace
-
-void set_enabled(bool enabled)
+void service_ipc_locked(bool full_telemetry)
 {
-  ipc_enabled = enabled;
-  if (!ipc_enabled)
-  {
-    shutdown();
-  }
-}
-
-void set_auto_ignore_enabled(bool enabled)
-{
-  auto_ignore_enabled = enabled;
-}
-
-void start()
-{
-  try_connect();
-}
-
-void tick()
-{
-  const auto force_ipc = textmode_build();
-  set_enabled(force_ipc || config.ipc.enabled);
-  set_auto_ignore_enabled(config.ipc.auto_ignore_local_bots);
-  if (ipc_state == nullptr && !force_ipc && !config.ipc.auto_connect)
-  {
-    return;
-  }
-
   if (ipc_state == nullptr)
   {
     try_connect();
@@ -625,11 +633,96 @@ void tick()
     {
       update_peer_count_locked();
       refresh_local_ipc_friends_locked();
-      update_telemetry_locked();
+      if (full_telemetry)
+      {
+        update_telemetry_locked();
+      }
+      else
+      {
+        update_basic_telemetry_locked();
+      }
     }
   }
 
   process_collected_commands(commands_to_process);
+}
+
+void ipc_worker_main()
+{
+  while (ipc_worker_running.load())
+  {
+    {
+      std::lock_guard lock{ipc_mutex};
+      if (ipc_enabled)
+      {
+        service_ipc_locked(false);
+      }
+    }
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+}
+
+void start_ipc_worker()
+{
+  if (!textmode_build() || ipc_worker_running.exchange(true))
+  {
+    return;
+  }
+
+  ipc_worker = std::thread{ipc_worker_main};
+}
+
+void stop_ipc_worker()
+{
+  if (!ipc_worker_running.exchange(false))
+  {
+    return;
+  }
+
+  if (ipc_worker.joinable() && ipc_worker.get_id() != std::this_thread::get_id())
+  {
+    ipc_worker.join();
+  }
+}
+
+} // namespace
+
+void set_enabled(bool enabled)
+{
+  ipc_enabled = enabled;
+  if (!ipc_enabled)
+  {
+    shutdown();
+  }
+}
+
+void set_auto_ignore_enabled(bool enabled)
+{
+  auto_ignore_enabled = enabled;
+}
+
+void start()
+{
+  {
+    std::lock_guard lock{ipc_mutex};
+    try_connect();
+  }
+  start_ipc_worker();
+}
+
+void tick()
+{
+  const auto force_ipc = textmode_build();
+  set_enabled(force_ipc || config.ipc.enabled);
+  set_auto_ignore_enabled(config.ipc.auto_ignore_local_bots);
+  if (ipc_state == nullptr && !force_ipc && !config.ipc.auto_connect)
+  {
+    return;
+  }
+
+  std::lock_guard lock{ipc_mutex};
+  service_ipc_locked(true);
 }
 
 void on_game_event(GameEvent* event)
@@ -679,6 +772,8 @@ void on_game_event(GameEvent* event)
 
 void shutdown()
 {
+  stop_ipc_worker();
+  std::lock_guard lock{ipc_mutex};
   mark_peer_free();
   ipc_memory.close();
   ipc_state = nullptr;

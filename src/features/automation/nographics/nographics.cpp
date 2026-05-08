@@ -441,7 +441,10 @@ void prepare_render_patches()
 {
   if constexpr (textmode_build)
   {
-    initialize_render_patches();
+    initialize();
+    enable_file_system_hooks();
+    update_material_stub(true);
+    apply_render_patches();
   }
 }
 
