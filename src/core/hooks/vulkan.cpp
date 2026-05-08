@@ -57,6 +57,8 @@ static uint32_t active_queue_family = invalid_queue_family;
 static bool vulkan_renderer_initialized = false;
 static bool vulkan_platform_initialized = false;
 static bool warned_late_swapchain_format = false;
+static bool logged_swapchain_resources = false;
+static bool logged_first_overlay_submit = false;
 
 static ImGui_ImplVulkanH_Frame frames[max_swapchain_images] = {};
 static ImGui_ImplVulkanH_FrameSemaphores frame_semaphores[max_swapchain_images] = {};
@@ -330,8 +332,8 @@ static bool create_overlay_render_pass()
   attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  attachment.initialLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-  attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+  attachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  attachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
   VkAttachmentReference color_attachment = {};
   color_attachment.attachment = 0;
@@ -474,6 +476,17 @@ static bool create_frame_resources(VkSwapchainKHR swapchain, uint32_t render_que
 
   swapchain_image_count = image_count;
   active_queue_family = render_queue_family;
+
+  if (!logged_swapchain_resources) {
+    print("Vulkan overlay resources ready: format=%u extent=%ux%u images=%u queue_family=%u\n",
+      static_cast<unsigned int>(active_swapchain_format),
+      extent.width,
+      extent.height,
+      image_count,
+      render_queue_family);
+    logged_swapchain_resources = true;
+  }
+
   return true;
 }
 
@@ -645,6 +658,33 @@ static bool record_overlay_commands(uint32_t image_index)
     return false;
   }
 
+  VkImageMemoryBarrier begin_barrier = {};
+  begin_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  begin_barrier.srcAccessMask = 0;
+  begin_barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  begin_barrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+  begin_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  begin_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  begin_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  begin_barrier.image = frame.Backbuffer;
+  begin_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  begin_barrier.subresourceRange.baseMipLevel = 0;
+  begin_barrier.subresourceRange.levelCount = 1;
+  begin_barrier.subresourceRange.baseArrayLayer = 0;
+  begin_barrier.subresourceRange.layerCount = 1;
+
+  vkCmdPipelineBarrier(
+    frame.CommandBuffer,
+    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+    0,
+    0,
+    nullptr,
+    0,
+    nullptr,
+    1,
+    &begin_barrier);
+
   VkRenderPassBeginInfo render_pass_info = {};
   render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
   render_pass_info.renderPass = vk_render_pass;
@@ -655,6 +695,33 @@ static bool record_overlay_commands(uint32_t image_index)
   draw_imgui_overlay();
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frame.CommandBuffer);
   vkCmdEndRenderPass(frame.CommandBuffer);
+
+  VkImageMemoryBarrier end_barrier = {};
+  end_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  end_barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  end_barrier.dstAccessMask = 0;
+  end_barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  end_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+  end_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  end_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  end_barrier.image = frame.Backbuffer;
+  end_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  end_barrier.subresourceRange.baseMipLevel = 0;
+  end_barrier.subresourceRange.levelCount = 1;
+  end_barrier.subresourceRange.baseArrayLayer = 0;
+  end_barrier.subresourceRange.layerCount = 1;
+
+  vkCmdPipelineBarrier(
+    frame.CommandBuffer,
+    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+    VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+    0,
+    0,
+    nullptr,
+    0,
+    nullptr,
+    1,
+    &end_barrier);
 
   result = vkEndCommandBuffer(frame.CommandBuffer);
   if (result != VK_SUCCESS) {
@@ -692,6 +759,16 @@ static bool submit_overlay_commands(VkQueue queue, const VkPresentInfoKHR* prese
   if (result != VK_SUCCESS) {
     print("vkQueueSubmit overlay failed: %d\n", result);
     return false;
+  }
+
+  if (!logged_first_overlay_submit) {
+    const auto* draw_data = ImGui::GetDrawData();
+    print("Vulkan overlay submitted: image=%u wait_semaphores=%u cmd_lists=%d vertices=%d\n",
+      image_index,
+      present_info->waitSemaphoreCount,
+      draw_data != nullptr ? draw_data->CmdListsCount : 0,
+      draw_data != nullptr ? draw_data->TotalVtxCount : 0);
+    logged_first_overlay_submit = true;
   }
 
   return true;
