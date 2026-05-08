@@ -24,11 +24,12 @@ const GAME_RENDER_OPTIONS = '-gl';
 const GAME_MODE_OPTIONS = TEXTMODE_GAME
     ? '-noshaderapi -nomouse -wavonly'
     : '';
+const SHARED_STEAMAPPS = '/opt/steamapps';
 const CATHOOK_ATTACH_DELAY_SECONDS = Number.parseInt(process.env.CATHOOK_ATTACH_DELAY_SECONDS || '5', 10);
 
 const LAUNCH_OPTIONS_STEAM = `firejail --dns=1.1.1.1 %NETWORK% --noprofile --private="%HOME%" --name=%JAILNAME% --env=PULSE_SERVER="unix:/tmp/pulse.sock" --env=DISPLAY=%DISPLAY% --env=XAUTHORITY=%XAUTHORITY% --env=LD_PRELOAD=%LD_PRELOAD% %STEAM% ${STEAM_WINDOW_OPTIONS} -login %LOGIN% %PASSWORD%`
 const LAUNCH_OPTIONS_STEAM_RESET = 'firejail --net=none --noprofile --private="%HOME%" %STEAM% --reset'
-const LAUNCH_OPTIONS_GAME = `firejail --join=%JAILNAME% bash -c 'cd "%GAMEPATH%" && %RUNTIME_PREFIX% SteamAppId=440 SteamGameId=440 SteamOverlayGameId=440 SteamEnv=1 CATHOOK_AUTO_ATTACH=1 CATHOOK_ATTACH_DELAY_SECONDS=%CATHOOK_ATTACH_DELAY_SECONDS% CAT_BOT_ID=%BOT_ID% CAT_BOT_NAME=%BOT_NAME% CAT_STEAMID32=%STEAMID32% LD_PRELOAD=%LD_PRELOAD% DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %GAME_BINARY% -steam -game tf ${GAME_RENDER_OPTIONS} ${GAME_WINDOW_OPTIONS} -novid -nojoy -noipx -nomessagebox -nominidumps -nohltv -nobreakpad -reuse -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync -insecure +clientport 27006-27014'`
+const LAUNCH_OPTIONS_GAME = `firejail --join=%JAILNAME% bash -c 'cd "%GAMEPATH%" && %RUNTIME_PREFIX% SteamAppId=440 SteamGameId=440 SteamOverlayGameId=440 SteamEnv=1 CATHOOK_ROOT="%CATHOOK_ROOT%" CATHOOK_AUTO_ATTACH=1 CATHOOK_ATTACH_DELAY_SECONDS=%CATHOOK_ATTACH_DELAY_SECONDS% CAT_BOT_ID=%BOT_ID% CAT_BOT_NAME=%BOT_NAME% CAT_STEAMID32=%STEAMID32% LD_PRELOAD=%LD_PRELOAD% DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %GAME_BINARY% -steam -game tf ${GAME_RENDER_OPTIONS} ${GAME_WINDOW_OPTIONS} -novid -nojoy -noipx -nomessagebox -nominidumps -nohltv -nobreakpad -reuse -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync -insecure +clientport 27006-27014'`
 const GAME_LIBRARY_PATH = './bin:./bin/linux64:./tf/bin:./tf/bin/linux64:./platform:./platform/bin:./platform/bin/linux64:.';
 
 // Adjust these values as needed to optimize catbot performance
@@ -46,6 +47,7 @@ const STEAMWEBHELPER_CLEANUP_DELAY_SECONDS_VALUE = Number.parseInt(process.env.C
 const STEAMWEBHELPER_CLEANUP_DELAY = (Number.isFinite(STEAMWEBHELPER_CLEANUP_DELAY_SECONDS_VALUE) ? Math.max(0, STEAMWEBHELPER_CLEANUP_DELAY_SECONDS_VALUE) : 10) * 1000;
 // Time to delay individual bot starts by to prevent IPC ID conflicts
 const DELAY_START_TIME = 1000;
+let navmesh_sync_done = false;
 
 const STATE = {
     INITIALIZING: 0,
@@ -101,6 +103,25 @@ function bash_double_quote_escape(value) {
 
 function tf2_install_ready(tf2_path) {
     return fs.existsSync(path.join(tf2_path, 'tf_linux64'));
+}
+
+function steamapps_tf2_ready(steamapps_path) {
+    return steamapps_path && tf2_install_ready(path.join(steamapps_path, 'common/Team Fortress 2'));
+}
+
+function steam_root_ready(steam_path) {
+    return steam_path &&
+        fs.existsSync(path.join(steam_path, 'steam.sh')) &&
+        fs.existsSync(path.join(steam_path, 'ubuntu12_32/steam'));
+}
+
+function command_succeeds(command, args) {
+    try {
+        child_process.execFileSync(command, args, { stdio: 'ignore' });
+        return true;
+    } catch (error) {
+        return false;
+    }
 }
 
 function preload_value(primary_library) {
@@ -306,6 +327,45 @@ function copy_directory_contents(source_path, target_path) {
     }
 }
 
+function copy_navmesh_files(source_path, target_path) {
+    if (!source_path || !fs.existsSync(source_path))
+        return 0;
+
+    try {
+        if (fs.existsSync(target_path) && fs.realpathSync(source_path) === fs.realpathSync(target_path))
+            return 0;
+    } catch (error) { }
+
+    fs.mkdirSync(target_path, { recursive: true });
+
+    var copied_count = 0;
+    for (const entry of fs.readdirSync(source_path, { withFileTypes: true })) {
+        if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== '.nav')
+            continue;
+
+        const source_entry = path.join(source_path, entry.name);
+        const target_entry = path.join(target_path, entry.name);
+        fs.copyFileSync(source_entry, target_entry);
+        fs.chmodSync(target_entry, 0o755);
+        copied_count++;
+    }
+
+    return copied_count;
+}
+
+function count_navmesh_files(directory_path) {
+    try {
+        if (!directory_path || !fs.existsSync(directory_path))
+            return 0;
+
+        return fs.readdirSync(directory_path, { withFileTypes: true })
+            .filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === '.nav')
+            .length;
+    } catch (error) {
+        return 0;
+    }
+}
+
 function copy_steam_seed(source_path, target_path, is_root = true) {
     const skip_entries = new Set(['appcache', 'config', 'logs', 'steamapps', 'steamapps_old', 'userdata']);
 
@@ -480,15 +540,35 @@ class Bot extends EventEmitter {
 
     shouldSetupSteamapps() {
         try {
-            return fs.existsSync(this.steamApps) && !fs.lstatSync(this.steamApps).isSymbolicLink();
+            const status = fs.lstatSync(this.steamApps);
+            if (!status.isSymbolicLink())
+                return true;
+
+            const target_path = fs.readlinkSync(this.steamApps);
+            return target_path !== '/opt/steamapps' && target_path !== '/opt/steamapps/';
         } catch (error) {
-            return false;
+            return error.code === 'ENOENT';
         }
     }
 
     setupSteamapps() {
-        fs.renameSync(this.steamApps, path.resolve(this.steamApps, '..', 'steamapps_old'));
-        fs.symlinkSync('/opt/steamapps/', this.steamApps);
+        fs.mkdirSync(path.dirname(this.steamApps), { recursive: true });
+        try {
+            const status = fs.lstatSync(this.steamApps);
+            if (status.isSymbolicLink()) {
+                fs.unlinkSync(this.steamApps);
+            } else {
+                let backup_path = path.resolve(this.steamApps, '..', 'steamapps_old');
+                if (fs.existsSync(backup_path))
+                    backup_path = path.resolve(this.steamApps, '..', `steamapps_old_${Date.now()}`);
+                fs.renameSync(this.steamApps, backup_path);
+            }
+        } catch (error) {
+            if (error.code !== 'ENOENT')
+                throw error;
+        }
+
+        fs.symlinkSync(SHARED_STEAMAPPS, this.steamApps);
         return true;
     }
 
@@ -507,25 +587,83 @@ class Bot extends EventEmitter {
     steamInstallCandidates() {
         return [
             path.join(this.home, '.steam/steam'),
-            path.join(this.home, '.steam/debian-installation'),
-            path.join(this.home, '.local/share/Steam')
+            path.join(this.home, '.local/share/Steam'),
+            path.join(this.home, '.steam/debian-installation')
         ];
     }
 
     hostSteamInstallCandidates() {
         return [
             path.join(USER.home, '.steam/steam'),
-            path.join(USER.home, '.steam/debian-installation'),
-            path.join(USER.home, '.local/share/Steam')
+            path.join(USER.home, '.local/share/Steam'),
+            path.join(USER.home, '.steam/debian-installation')
         ];
     }
 
+    hostSteamappsCandidates() {
+        return unique_paths([
+            process.env.CAT_STEAMAPPS_PATH,
+            process.env.CAT_STEAM_ROOT ? path.join(process.env.CAT_STEAM_ROOT, 'steamapps') : null,
+            path.join(USER.home, '.steam/steam/steamapps'),
+            path.join(USER.home, '.local/share/Steam/steamapps'),
+            path.join(USER.home, '.steam/debian-installation/steamapps')
+        ]);
+    }
+
     hostSteamInstallSource() {
-        return this.hostSteamInstallCandidates().find((steam_path) =>
-            steam_path &&
-            fs.existsSync(path.join(steam_path, 'steam.sh')) &&
-            fs.existsSync(path.join(steam_path, 'ubuntu12_32/steam'))
-        ) || null;
+        return this.hostSteamInstallCandidates().find(steam_root_ready) || null;
+    }
+
+    hostSteamappsSource() {
+        const candidates = this.hostSteamappsCandidates();
+        return candidates.find(steamapps_tf2_ready) || candidates.find((steamapps_path) => steamapps_path && fs.existsSync(steamapps_path)) || null;
+    }
+
+    ensureSharedSteamapps() {
+        const source_path = this.hostSteamappsSource();
+        if (!source_path) {
+            this.log(`Shared steamapps unavailable: host Steam steamapps directory was not found.`);
+            return false;
+        }
+
+        let real_source_path = source_path;
+        try {
+            real_source_path = fs.realpathSync(source_path);
+        } catch (error) { }
+
+        if (real_source_path === SHARED_STEAMAPPS)
+            return true;
+
+        if (command_succeeds('mountpoint', ['-q', SHARED_STEAMAPPS])) {
+            if (steamapps_tf2_ready(SHARED_STEAMAPPS))
+                return true;
+
+            child_process.execFileSync('umount', [SHARED_STEAMAPPS]);
+            this.log(`Unmounted incomplete ${SHARED_STEAMAPPS}`);
+        }
+
+        try {
+            const status = fs.lstatSync(SHARED_STEAMAPPS);
+            if (status.isSymbolicLink()) {
+                const current_target = fs.readlinkSync(SHARED_STEAMAPPS);
+                fs.rmSync(SHARED_STEAMAPPS, { force: true });
+                this.log(`Replacing ${SHARED_STEAMAPPS} symlink (${current_target}) with a bind mount to ${real_source_path}`);
+            } else if (steamapps_tf2_ready(SHARED_STEAMAPPS)) {
+                return true;
+            } else {
+                const backup_path = `${SHARED_STEAMAPPS}.backup.${Math.floor(Date.now() / 1000)}`;
+                fs.renameSync(SHARED_STEAMAPPS, backup_path);
+                this.log(`Moved incomplete ${SHARED_STEAMAPPS} to ${backup_path}`);
+            }
+        } catch (error) {
+            if (error.code !== 'ENOENT')
+                throw error;
+        }
+
+        fs.mkdirSync(SHARED_STEAMAPPS, { recursive: true });
+        child_process.execFileSync('mount', ['--bind', real_source_path, SHARED_STEAMAPPS]);
+        this.log(`Shared steamapps ready, source=${real_source_path}, target=${SHARED_STEAMAPPS}, mode=bind`);
+        return true;
     }
 
     tf2InstallCandidates() {
@@ -537,23 +675,59 @@ class Bot extends EventEmitter {
 
         return unique_paths([
             process.env.TF2_PATH,
+            path.join(SHARED_STEAMAPPS, 'common/Team Fortress 2'),
             ...steam_roots.map((steam_path) => path.join(steam_path, 'steamapps/common/Team Fortress 2')),
-            path.join(this.home, '.steam/debian-installation/steamapps/common/Team Fortress 2'),
             path.join(this.home, '.steam/steam/steamapps/common/Team Fortress 2'),
             path.join(this.home, '.local/share/Steam/steamapps/common/Team Fortress 2'),
-            '/opt/steamapps/common/Team Fortress 2'
+            path.join(this.home, '.steam/debian-installation/steamapps/common/Team Fortress 2')
         ]);
     }
 
-    prepareDebianSteamInstall() {
+    navmesh_source_candidates() {
+        return unique_paths([
+            this.tf2Path ? path.join(this.tf2Path, 'tf/maps') : null,
+            ...this.tf2InstallCandidates().map((tf2_path) => path.join(tf2_path, 'tf/maps')),
+            ...this.hostSteamappsCandidates().map((steamapps_path) => path.join(steamapps_path, 'common/Team Fortress 2/tf/maps')),
+            path.join(SHARED_STEAMAPPS, 'common/Team Fortress 2/tf/maps')
+        ]);
+    }
+
+    sync_navmeshes() {
+        if (navmesh_sync_done)
+            return;
+
+        const target_path = path.join(CATHOOK_ROOT, 'navmeshes');
+        var copied_count = 0;
+        var source_count = 0;
+        for (const source_path of this.navmesh_source_candidates()) {
+            try {
+                const source_copied_count = copy_navmesh_files(source_path, target_path);
+                if (source_copied_count > 0)
+                    source_count++;
+                copied_count += source_copied_count;
+            } catch (error) {
+                this.log(`Failed to copy navmeshes from ${source_path} to ${target_path}: ${error.message}`);
+            }
+        }
+
+        navmesh_sync_done = true;
+        if (copied_count > 0)
+            this.log(`Navmeshes ready, copied=${copied_count}, sources=${source_count}, target=${target_path}`);
+        else if (count_navmesh_files(target_path) > 0)
+            this.log(`Navmeshes ready, target=${target_path}`);
+        else
+            this.log(`No navmesh files found to copy into ${target_path}`);
+    }
+
+    prepareSteamInstall() {
         const source_path = this.hostSteamInstallSource();
         if (!source_path)
             return;
 
+        const target_path = this.botSteamPath(source_path);
         const steam_config_path = path.join(this.home, '.steam');
-        const target_path = path.join(steam_config_path, 'debian-installation');
         if (!fs.existsSync(path.join(target_path, 'steam.sh'))) {
-            this.log(`Seeding Steam client into bot home from ${source_path}`);
+            this.log(`Seeding Steam client into bot home from ${source_path} to ${target_path}`);
             copy_steam_seed(source_path, target_path);
             chown_tree(target_path, USER.uid, USER.uid);
         }
@@ -561,9 +735,17 @@ class Bot extends EventEmitter {
         fs.mkdirSync(steam_config_path, { recursive: true });
         for (const link_name of ['steam', 'root']) {
             const link_path = path.join(steam_config_path, link_name);
+            if (path.resolve(link_path) === path.resolve(target_path)) {
+                try {
+                    if (!fs.lstatSync(link_path).isSymbolicLink())
+                        continue;
+                } catch (error) { }
+            }
+
+            const link_target = path.relative(steam_config_path, target_path) || '.';
             try {
                 const status = fs.lstatSync(link_path);
-                if (!status.isSymbolicLink() || fs.readlinkSync(link_path) !== 'debian-installation')
+                if (!status.isSymbolicLink() || fs.readlinkSync(link_path) !== link_target)
                     fs.rmSync(link_path, { recursive: true, force: true });
             } catch (error) {
                 if (error.code !== 'ENOENT')
@@ -571,7 +753,7 @@ class Bot extends EventEmitter {
             }
 
             if (!fs.existsSync(link_path))
-                fs.symlinkSync('debian-installation', link_path);
+                fs.symlinkSync(link_target, link_path);
         }
         chown_tree(steam_config_path, USER.uid, USER.uid);
     }
@@ -722,14 +904,18 @@ class Bot extends EventEmitter {
 
     markSteamReady(preferredSteamPath) {
         const candidates = unique_paths([preferredSteamPath, ...this.steamInstallCandidates()]);
-        const steam_path = candidates.find((candidate) => candidate && fs.existsSync(candidate)) || path.join(this.home, '.steam/steam');
+        const steam_path = candidates.find(steam_root_ready)
+            || candidates.find((candidate) => candidate && fs.existsSync(candidate))
+            || path.join(this.home, '.steam/steam');
 
         this.steamPath = this.botSteamPath(steam_path);
         this.steamApps = path.join(this.steamPath, 'steamapps');
 
+        this.ensureSharedSteamapps();
         if (this.shouldSetupSteamapps())
             this.setupSteamapps();
         this.tf2Path = this.tf2InstallCandidates().find(tf2_install_ready) || path.join(this.steamApps, 'common/Team Fortress 2');
+        this.sync_navmeshes();
 
         if (!this.repairSteamSdk64())
             return false;
@@ -811,7 +997,7 @@ class Bot extends EventEmitter {
             fs.mkdirSync(self.home);
             fs.chownSync(self.home, USER.uid, USER.uid);
         }
-        self.prepareDebianSteamInstall();
+        self.prepareSteamInstall();
         const xauthority_path = self.ensureVisibleXauthority();
 
         var steambin = this.nativeSteam ? "steam-native" : "steam";
@@ -839,6 +1025,7 @@ class Bot extends EventEmitter {
 
         var tail_steam_err_logs = [];
         var steam_path = path.join(this.home, ".steam/steam");
+        var steam_error_logs_registered = false;
 
         function processErrorLogs(text) {
             if (text.includes("System startup time:")) {
@@ -857,26 +1044,25 @@ class Bot extends EventEmitter {
             }
         }
 
-        function registerDebianListener() {
-            try {
-                tail_steam_err_logs.push(new Tail(path.join(this.home, ".steam/debian-installation/error.log")));
-                tail_steam_err_logs[tail_steam_err_logs.length-1].on('line', (data) => {
-                    processErrorLogs.bind(this)(data);
-                })
-            } catch (error) {
-                self.log("No debian-installation/error.log file found.");
-                tail_steam_err_logs.pop();
+        function registerSteamErrorLogListeners() {
+            if (steam_error_logs_registered)
+                return;
+
+            steam_error_logs_registered = true;
+            var registered_count = 0;
+            for (const log_path of self.steamInstallCandidates().map((steam_root) => path.join(steam_root, 'error.log'))) {
+                try {
+                    const tail = new Tail(log_path);
+                    tail.on('line', (data) => {
+                        processErrorLogs.bind(this)(data);
+                    });
+                    tail_steam_err_logs.push(tail);
+                    registered_count++;
+                } catch (error) { }
             }
+            if (registered_count == 0)
+                steam_error_logs_registered = false;
         }
-
-        // FUCK YOU DEBIAN AND EVERYTHING YOU DO
-        // FUCK YOU UBUNTU AND EVERYTHING YOU DO
-        // WHY THE FUCK DO YOU NEED TO DO YOUR OWN THING EVERY TIME INSTEAD OF STICKING WITH THE FUCKKING STANDARDS/DEFAULTS
-
-        // WHY THE FUCK DO YOU RESTRICT NETWORK FUNCTIONS FOR NON PRIVILEDGED FIREJAIL AND DIVERGING FROM THE DEFAULTS?
-        // WHY THE FUCK DO YOU INSIST ON FORWARDING THE STEAM ERROR LOGS (THE ONLY USEFUL LOGS) TO A RANDOM ASS FILE FOR NO REASON?
-        var isDebian = !fs.existsSync("/usr/bin/steam") && fs.existsSync("/usr/games/steam");
-
 
         self.procFirejailSteam.stderr.on("data", (data) => {
             var text = data.toString();
@@ -894,8 +1080,8 @@ class Bot extends EventEmitter {
                 this.shouldRestart = true;
                 this.shouldResetSteam = true;
             }
-            if (isDebian && text.includes("Running Steam on"))
-                registerDebianListener.bind(this)();
+            if (text.includes("Running Steam on"))
+                registerSteamErrorLogListeners.bind(this)();
         });
         self.procFirejailSteam.stderr.pipe(self.logSteam);
         self.procFirejailSteam.on('exit', self.handleSteamExit.bind(self));
@@ -948,6 +1134,7 @@ class Bot extends EventEmitter {
         self.procFirejailGame = child_process.spawn(LAUNCH_OPTIONS_GAME.replace("%GAMEPATH%", bash_double_quote_escape(game_launch_path))
             .replace("%RUNTIME_PREFIX%", self.gameRuntimePrefix())
             .replace("%GAME_BINARY%", game_binary)
+            .replace("%CATHOOK_ROOT%", bash_double_quote_escape(CATHOOK_ROOT))
             .replace("%CATHOOK_ATTACH_DELAY_SECONDS%", String(CATHOOK_ATTACH_DELAY_SECONDS))
             .replace("%BOT_ID%", String(self.botid))
             .replace("%BOT_NAME%", self.name)

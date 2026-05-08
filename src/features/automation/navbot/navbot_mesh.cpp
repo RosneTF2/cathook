@@ -14,13 +14,17 @@ V  o o  V  file: src/features/automation/navbot/navbot_mesh.cpp
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdarg>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 #include <string>
+#include <system_error>
 #include <vector>
+
+#include "core/logger.hpp"
 
 #include "core/math/math.hpp"
 
@@ -51,6 +55,16 @@ constexpr uint32_t tf_nav_sniper_spot = 0x00200000u;
 constexpr uint32_t tf_nav_sentry_spot = 0x00400000u;
 
 constexpr uint32_t tf_nav_sub_version_with_attributes = 2u;
+
+void navbot_log(const char* fmt, ...)
+{
+  cathook::core::log_raw("[navbot] ");
+
+  va_list args{};
+  va_start(args, fmt);
+  cathook::core::vlog_raw(fmt, args);
+  va_end(args);
+}
 
 class nav_file_reader
 {
@@ -184,11 +198,40 @@ std::string sanitize_map_name(const char* raw_name)
   return map_name;
 }
 
+void append_search_root(std::vector<std::filesystem::path>& search_roots, std::filesystem::path path)
+{
+  if (path.empty())
+  {
+    return;
+  }
+
+  if (std::find(search_roots.begin(), search_roots.end(), path) != search_roots.end())
+  {
+    return;
+  }
+
+  search_roots.emplace_back(std::move(path));
+}
+
+bool can_open_nav_file(const std::filesystem::path& path)
+{
+  auto file = std::ifstream(path, std::ios::binary);
+  return file.good();
+}
+
 std::filesystem::path resolve_nav_path(const std::string& map_name)
 {
   auto search_roots = std::vector<std::filesystem::path>{};
-  auto current_root = std::filesystem::current_path();
-  search_roots.push_back(current_root);
+  std::error_code error{};
+  auto current_root = std::filesystem::current_path(error);
+  if (error)
+  {
+    navbot_log("navmesh current_path failed: %s\n", error.message().c_str());
+  }
+  else
+  {
+    append_search_root(search_roots, current_root);
+  }
 
   for (int depth = 0; depth < 6; ++depth)
   {
@@ -198,19 +241,45 @@ std::filesystem::path resolve_nav_path(const std::string& map_name)
       break;
     }
 
-    search_roots.push_back(current_root);
+    append_search_root(search_roots, current_root);
   }
+
+  auto append_env_search_root =
+    [&search_roots](const char* env_name, const std::filesystem::path& suffix)
+  {
+    if (const auto* value = std::getenv(env_name); value != nullptr && value[0] != '\0')
+    {
+      auto root = std::filesystem::path(value);
+      if (!suffix.empty())
+      {
+        root /= suffix;
+      }
+
+      append_search_root(search_roots, std::move(root));
+    }
+  };
+
+  append_env_search_root("TF2_PATH", std::filesystem::path{});
+  append_env_search_root("CAT_TF2_PATH", std::filesystem::path{});
+  append_env_search_root("CAT_STEAMAPPS_PATH", std::filesystem::path("common/Team Fortress 2"));
+  append_env_search_root("CAT_STEAM_ROOT", std::filesystem::path("steamapps/common/Team Fortress 2"));
+
+  if (const auto* cathook_root = std::getenv("CATHOOK_ROOT"); cathook_root != nullptr && cathook_root[0] != '\0')
+  {
+    append_search_root(search_roots, std::filesystem::path(cathook_root) / "navmeshes");
+  }
+
+  append_search_root(search_roots, cathook::core::root_directory() / "navmeshes");
+  append_search_root(search_roots, "/opt/cathook/navmeshes");
+  append_search_root(search_roots, "/opt/steamapps/common/Team Fortress 2");
 
   if (const auto* home = std::getenv("HOME"); home != nullptr && home[0] != '\0')
   {
     const auto home_path = std::filesystem::path(home);
-    search_roots.push_back(home_path / ".steam/steam/steamapps/common/Team Fortress 2");
-    search_roots.push_back(home_path / ".steam/debian-installation/steamapps/common/Team Fortress 2");
-    search_roots.push_back(home_path / ".local/share/Steam/steamapps/common/Team Fortress 2");
+    append_search_root(search_roots, home_path / ".steam/steam/steamapps/common/Team Fortress 2");
+    append_search_root(search_roots, home_path / ".local/share/Steam/steamapps/common/Team Fortress 2");
+    append_search_root(search_roots, home_path / ".steam/debian-installation/steamapps/common/Team Fortress 2");
   }
-
-  search_roots.push_back("/opt/cathook/navmeshes");
-  search_roots.push_back("/opt/steamapps/common/Team Fortress 2");
 
   for (const auto& root : search_roots)
   {
@@ -225,13 +294,38 @@ std::filesystem::path resolve_nav_path(const std::string& map_name)
     for (const auto& relative_root : relative_roots)
     {
       auto candidate = root / relative_root / (map_name + ".nav");
-      if (std::filesystem::exists(candidate))
+      error.clear();
+      const auto exists = std::filesystem::exists(candidate, error);
+      if (error)
       {
-        return std::filesystem::weakly_canonical(candidate);
+        navbot_log("navmesh check failed path='%s' error='%s'\n", candidate.string().c_str(), error.message().c_str());
+        continue;
+      }
+
+      navbot_log("navmesh check path='%s' exists=%d\n", candidate.string().c_str(), exists ? 1 : 0);
+      if (exists)
+      {
+        if (!can_open_nav_file(candidate))
+        {
+          navbot_log("navmesh candidate unreadable path='%s'\n", candidate.string().c_str());
+          continue;
+        }
+
+        error.clear();
+        auto canonical = std::filesystem::weakly_canonical(candidate, error);
+        if (error)
+        {
+          navbot_log("navmesh canonicalize failed path='%s' error='%s'\n", candidate.string().c_str(), error.message().c_str());
+          return candidate;
+        }
+
+        navbot_log("navmesh found path='%s'\n", canonical.string().c_str());
+        return canonical;
       }
     }
   }
 
+  navbot_log("navmesh not found map='%s' searched_roots=%zu\n", map_name.c_str(), search_roots.size());
   return {};
 }
 
@@ -553,14 +647,27 @@ bool navbot_mesh::rebuild_from_current_map()
 {
   clear();
 
-  if (engine == nullptr || !engine->is_in_game())
+  if (engine == nullptr)
   {
+    navbot_log("mesh rebuild skipped: engine unavailable\n");
     return false;
   }
 
-  cache_.map_name = sanitize_map_name(engine->get_level_name());
+  if (!engine->is_in_game())
+  {
+    navbot_log("mesh rebuild skipped: not in game\n");
+    return false;
+  }
+
+  const auto* raw_level_name = engine->get_level_name();
+  cache_.map_name = sanitize_map_name(raw_level_name);
+  navbot_log(
+    "mesh rebuild requested raw_level='%s' map='%s'\n",
+    raw_level_name != nullptr ? raw_level_name : "",
+    cache_.map_name.c_str());
   if (cache_.map_name.empty())
   {
+    navbot_log("mesh rebuild failed: empty map name\n");
     return false;
   }
 
@@ -571,12 +678,34 @@ bool navbot_mesh::rebuild_from_current_map()
   }
 
   cache_.loaded = loaded;
+  navbot_log(
+    "mesh rebuild finished map='%s' loaded=%d areas=%zu nav='%s'\n",
+    cache_.map_name.c_str(),
+    cache_.loaded ? 1 : 0,
+    cache_.areas.size(),
+    cache_.nav_file_path.c_str());
   return cache_.loaded;
 }
 
 void navbot_mesh::clear()
 {
   cache_ = {};
+}
+
+void navbot_mesh::clear_nav_data()
+{
+  cache_.loaded = false;
+  cache_.areas.clear();
+  cache_.area_lookup.clear();
+  cache_.health_areas.clear();
+  cache_.ammo_areas.clear();
+  cache_.control_point_areas.clear();
+  cache_.sentry_spot_areas.clear();
+  cache_.sniper_spot_areas.clear();
+  cache_.spawn_room_areas.clear();
+  cache_.spawn_exit_areas.clear();
+  cache_.payload_areas.clear();
+  cache_.flag_areas.clear();
 }
 
 bool navbot_mesh::is_ready() const
@@ -677,6 +806,7 @@ bool navbot_mesh::load_current_map_file()
   if (nav_path.empty())
   {
     cache_.nav_file_path.clear();
+    navbot_log("load failed map='%s': nav file not found\n", cache_.map_name.c_str());
     return false;
   }
 
@@ -685,6 +815,7 @@ bool navbot_mesh::load_current_map_file()
   auto bytes = read_file_bytes(nav_path);
   if (bytes.empty())
   {
+    navbot_log("load failed path='%s': file is empty or unreadable\n", cache_.nav_file_path.c_str());
     return false;
   }
 
@@ -693,12 +824,14 @@ bool navbot_mesh::load_current_map_file()
   auto magic = reader.read_u32();
   if (!reader.valid() || magic != nav_magic_number)
   {
+    navbot_log("load failed path='%s': bad magic 0x%08x\n", cache_.nav_file_path.c_str(), magic);
     return false;
   }
 
   auto version = reader.read_u32();
   if (!reader.valid() || version < 4 || version > nav_current_version)
   {
+    navbot_log("load failed path='%s': unsupported version %u\n", cache_.nav_file_path.c_str(), version);
     return false;
   }
 
@@ -720,12 +853,14 @@ bool navbot_mesh::load_current_map_file()
 
   if (!parse_place_directory(reader, version))
   {
+    navbot_log("load failed path='%s': place directory parse failed\n", cache_.nav_file_path.c_str());
     return false;
   }
 
   auto area_count = reader.read_u32();
   if (!reader.valid() || area_count == 0)
   {
+    navbot_log("load failed path='%s': invalid area count %u\n", cache_.nav_file_path.c_str(), area_count);
     return false;
   }
 
@@ -739,7 +874,8 @@ bool navbot_mesh::load_current_map_file()
     nav_area_data area{};
     if (!parse_area(reader, version, sub_version, area))
     {
-      clear();
+      navbot_log("load failed path='%s': area %u parse failed\n", cache_.nav_file_path.c_str(), i);
+      clear_nav_data();
       return false;
     }
 
@@ -748,11 +884,24 @@ bool navbot_mesh::load_current_map_file()
 
   if (version >= 6 && !skip_ladders(reader, version))
   {
-    clear();
+    navbot_log("load failed path='%s': ladder parse failed\n", cache_.nav_file_path.c_str());
+    clear_nav_data();
     return false;
   }
 
-  return reader.valid() && !cache_.areas.empty();
+  if (!reader.valid() || cache_.areas.empty())
+  {
+    navbot_log("load failed path='%s': reader invalid after parse\n", cache_.nav_file_path.c_str());
+    return false;
+  }
+
+  navbot_log(
+    "load succeeded path='%s' version=%u sub_version=%u areas=%zu\n",
+    cache_.nav_file_path.c_str(),
+    version,
+    sub_version,
+    cache_.areas.size());
+  return true;
 }
 
 void navbot_mesh::rebuild_categories()

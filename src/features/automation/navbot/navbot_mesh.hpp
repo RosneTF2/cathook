@@ -100,6 +100,7 @@ public:
 
 private:
   bool load_current_map_file();
+  void clear_nav_data();
   void rebuild_categories();
 
   nav_mesh_cache cache_{};

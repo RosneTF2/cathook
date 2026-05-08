@@ -7,7 +7,9 @@ web_panel_root="$script_dir/catbot-ipc-web-panel-main"
 ipc_server_root="$script_dir/catbot-ipc-server-main"
 database_root="$script_dir/catbot-database"
 repo_url="${CAT_REPO_URL:-https://github.com/pupnoodle/cathook}"
+install_root="${CATHOOK_ROOT:-/opt/cathook}"
 steamapps_detect_log="${CAT_STEAMAPPS_DETECT_LOG:-/tmp/cat-steamapps-detect.log}"
+shared_steamapps="/opt/steamapps"
 
 usage() {
     cat <<'EOF'
@@ -17,6 +19,7 @@ Use --dev to skip repository/navmesh update checks and never reset local changes
 
 Environment:
   CATHOOK_DEV_MODE=1
+  CATHOOK_ROOT=/opt/cathook       Copy navmeshes into CATHOOK_ROOT/navmeshes.
   CAT_UPDATE_HOST_NAVMESHES=1  Copy navmeshes into the host TF2 maps directory.
   CAT_STEAMAPPS_PATH=/path/to/steamapps
   CAT_STEAM_ROOT=/path/to/steam
@@ -84,7 +87,7 @@ write_steamapps_detect_log() {
     shift
 
     {
-        echo "Failed to automatically find Steam steamapps."
+        echo "Failed to automatically find Steam steamapps with Team Fortress 2."
         echo "user=${SUDO_USER:-$USER}"
         echo "user_home=$user_home"
         echo "HOME=$HOME"
@@ -93,8 +96,12 @@ write_steamapps_detect_log() {
         echo
         echo "Checked paths:"
         for candidate in "$@"; do
-            if [ -d "$candidate" ]; then
-                echo "  ok:      $candidate"
+            if tf2_install_ready_from_steamapps "$candidate"; then
+                echo "  tf2:     $candidate"
+            elif [ -d "$candidate/common/Team Fortress 2" ]; then
+                echo "  partial: $candidate (Team Fortress 2 exists, tf_linux64 missing)"
+            elif [ -d "$candidate" ]; then
+                echo "  no-tf2:  $candidate"
             else
                 echo "  missing: $candidate"
             fi
@@ -118,15 +125,15 @@ find_host_steamapps() {
 
     candidates+=(
         "$user_home/.steam/steam/steamapps" \
-        "$user_home/.steam/debian-installation/steamapps" \
         "$user_home/.local/share/Steam/steamapps" \
+        "$user_home/.steam/debian-installation/steamapps" \
         "$HOME/.steam/steam/steamapps" \
-        "$HOME/.steam/debian-installation/steamapps" \
-        "$HOME/.local/share/Steam/steamapps"
+        "$HOME/.local/share/Steam/steamapps" \
+        "$HOME/.steam/debian-installation/steamapps"
     )
 
     for candidate in "${candidates[@]}"; do
-        if [ -d "$candidate" ]; then
+        if tf2_install_ready_from_steamapps "$candidate"; then
             printf '%s\n' "$candidate"
             return
         fi
@@ -134,6 +141,63 @@ find_host_steamapps() {
 
     write_steamapps_detect_log "$user_home" "${candidates[@]}"
     return 1
+}
+
+tf2_install_ready_from_steamapps() {
+    local steamapps_path="$1"
+
+    [ -x "$steamapps_path/common/Team Fortress 2/tf_linux64" ]
+}
+
+path_has_entries() {
+    local target_path="$1"
+
+    find "$target_path" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null | grep -q .
+}
+
+ensure_shared_steamapps() {
+    local host_steamapps="$1"
+    local backup_path
+    local host_real
+
+    if [ -z "$host_steamapps" ] || [ ! -d "$host_steamapps" ]; then
+        echo "Host steamapps path is unavailable; cannot prepare $shared_steamapps." >&2
+        return 1
+    fi
+
+    host_real="$(readlink -f "$host_steamapps" 2>/dev/null || printf '%s\n' "$host_steamapps")"
+    if [ "$host_real" = "$shared_steamapps" ]; then
+        return 0
+    fi
+
+    if mountpoint -q "$shared_steamapps" 2>/dev/null; then
+        if tf2_install_ready_from_steamapps "$shared_steamapps"; then
+            return 0
+        fi
+
+        echo "$shared_steamapps is mounted but does not expose a runnable TF2 install; unmounting it."
+        run_as_root umount "$shared_steamapps"
+    fi
+
+    if [ -L "$shared_steamapps" ]; then
+        echo "Replacing $shared_steamapps symlink with a bind mount to $host_real."
+        run_as_root rm -f "$shared_steamapps"
+    elif [ -e "$shared_steamapps" ]; then
+        if tf2_install_ready_from_steamapps "$shared_steamapps"; then
+            return 0
+        fi
+
+        backup_path="$shared_steamapps.backup.$(date +%s)"
+        if path_has_entries "$shared_steamapps"; then
+            echo "$shared_steamapps exists but does not contain a runnable TF2 install; moving it to $backup_path."
+            run_as_root mv "$shared_steamapps" "$backup_path"
+        else
+            run_as_root rmdir "$shared_steamapps" 2>/dev/null || run_as_root mv "$shared_steamapps" "$backup_path"
+        fi
+    fi
+
+    run_as_root mkdir -p "$shared_steamapps"
+    run_as_root mount --bind "$host_real" "$shared_steamapps"
 }
 
 update_origin_url() {
@@ -238,54 +302,68 @@ prepare_firejail() {
     run_as_root sed -i -E 's/^[[:space:]]*restricted-network[[:space:]]+yes/# restricted-network yes/' "$config_path"
 }
 
-update_navmeshes() {
-    local host_steamapps
-    local host_tf2_maps
-    local shared_tf2_maps="/opt/steamapps/common/Team Fortress 2/tf/maps"
-    local tf2_maps="$shared_tf2_maps"
-
-    if ! host_steamapps="$(find_host_steamapps)"; then
-        echo "Error: could not automatically find the host Steam steamapps directory." >&2
-        echo "Detection log: $steamapps_detect_log" >&2
-        cat "$steamapps_detect_log" >&2 2>/dev/null || true
-        echo "Skipping navmesh copy because TF2 maps could not be located." >&2
-        return
-    fi
-
-    host_tf2_maps="$host_steamapps/common/Team Fortress 2/tf/maps"
-
-    if is_dev_mode; then
-        echo "Dev mode enabled; skipping navmesh update."
-        return
-    fi
-
-    if [ ! -d "$host_tf2_maps" ]; then
-        echo "TF2 maps directory not found at $host_tf2_maps; skipping navmesh copy."
-        return
-    fi
-
-    if is_enabled "${CAT_UPDATE_HOST_NAVMESHES:-0}"; then
-        tf2_maps="$host_tf2_maps"
-        echo "CAT_UPDATE_HOST_NAVMESHES is enabled; navmeshes will be copied to the host TF2 install."
-    else
-        echo "Copying navmeshes into /opt/steamapps, matching the shared potionhook steamapps path."
-    fi
-
+fetch_navmesh_database() {
     echo "Fetching navmeshes..."
     if [ -d "$database_root/.git" ]; then
         git -C "$database_root" fetch --depth 1
         git -C "$database_root" reset --hard origin/master
     elif [ -d "$database_root" ]; then
         echo "$database_root exists but is not a git checkout; skipping navmesh update." >&2
-        return
+        return 1
     else
         git clone --depth 1 https://github.com/GatoPotato658/catbot-database "$database_root"
     fi
+}
 
-    echo "Copying navmeshes..."
-    run_as_root mkdir -p "$tf2_maps"
-    run_as_root rsync "$database_root/nav meshes/"*.nav "$tf2_maps/"
-    run_as_root find "$tf2_maps" -maxdepth 1 -type f -name '*.nav' -exec chmod 755 {} +
+copy_navmeshes_to() {
+    local target_dir="$1"
+    local label="$2"
+
+    echo "Copying navmeshes into $target_dir ($label)..."
+    run_as_root mkdir -p "$target_dir"
+    run_as_root rsync "$database_root/nav meshes/"*.nav "$target_dir/"
+    run_as_root find "$target_dir" -maxdepth 1 -type f -name '*.nav' -exec chmod 755 {} +
+}
+
+update_navmeshes() {
+    local cathook_navmeshes="$install_root/navmeshes"
+    local host_steamapps
+    local host_tf2_maps
+    local shared_tf2_maps="$shared_steamapps/common/Team Fortress 2/tf/maps"
+    local tf2_maps="$shared_tf2_maps"
+
+    if is_dev_mode; then
+        echo "Dev mode enabled; skipping navmesh update."
+        return
+    fi
+
+    fetch_navmesh_database || return
+    copy_navmeshes_to "$cathook_navmeshes" "Cat navbot search path"
+
+    if ! host_steamapps="$(find_host_steamapps)"; then
+        echo "Error: could not automatically find the host Steam steamapps directory." >&2
+        echo "Detection log: $steamapps_detect_log" >&2
+        cat "$steamapps_detect_log" >&2 2>/dev/null || true
+        echo "Navmeshes were copied to $cathook_navmeshes, but TF2 maps could not be located." >&2
+        return
+    fi
+
+    host_tf2_maps="$host_steamapps/common/Team Fortress 2/tf/maps"
+    if [ ! -d "$host_tf2_maps" ]; then
+        echo "TF2 maps directory not found at $host_tf2_maps; navmeshes were copied to $cathook_navmeshes only."
+        return
+    fi
+
+    ensure_shared_steamapps "$host_steamapps" || return
+
+    if is_enabled "${CAT_UPDATE_HOST_NAVMESHES:-0}"; then
+        tf2_maps="$host_tf2_maps"
+        echo "CAT_UPDATE_HOST_NAVMESHES is enabled; navmeshes will also be copied to the host TF2 install."
+    else
+        echo "Navmeshes will also be copied into /opt/steamapps, matching the shared potionhook steamapps path."
+    fi
+
+    copy_navmeshes_to "$tf2_maps" "TF2 maps directory"
 }
 
 parse_args "$@"

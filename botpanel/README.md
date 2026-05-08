@@ -28,13 +28,14 @@ or Xvfb on distros where xpra is not packaged.
 - Disable helper cleanup: `CAT_STEAMWEBHELPER_CLEANUP=0 ./botpanel/start`
 - Override helper cleanup delay: `CAT_STEAMWEBHELPER_CLEANUP_SECONDS=15 ./botpanel/start`
 - Optional ban tracker API key: `CAT_STEAM_WEB_API_KEY=... ./botpanel/start`; without it, the panel falls back to Steam Community profile HTML checks.
-- Host Steam content is shared at `/opt/steamapps`, matching the potionhook panel layout. Bot instances symlink their `steamapps` directory to that shared path.
+- Host Steam content is shared at `/opt/steamapps`. Botpanel bind-mounts that path to the detected host Steam `steamapps` directory, then bot instances symlink their own `steamapps` directory to it. Debian/Ubuntu and Arch Steam layouts are checked.
 - The host Steam path is detected automatically. If detection fails, the launcher prints and writes `/tmp/cat-steamapps-detect.log` with every checked path.
 
 `./botpanel/stop` stops the matching xpra display unless `CAT_VISIBLE_WINDOWS=1` is set.
 
 `./botpanel/update` updates this single repository, installs dependencies,
 builds Cat default/textmode libraries, builds the bundled IPC server, installs
-web panel npm dependencies, and refreshes navmeshes in `/opt/steamapps` when
-TF2 is installed. Set `CAT_UPDATE_HOST_NAVMESHES=1` to copy navmeshes directly
-through the host Steam path instead.
+web panel npm dependencies, and refreshes navmeshes in `/opt/cathook/navmeshes`.
+When TF2 is installed it also refreshes `/opt/steamapps`; set
+`CAT_UPDATE_HOST_NAVMESHES=1` to copy navmeshes directly through the host Steam
+path instead.
