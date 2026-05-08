@@ -10,6 +10,14 @@ accounts_file="$setup_root/accounts.txt"
 user_instances_dir="$setup_root/user_instances"
 install_root="${CATHOOK_ROOT:-/opt/cathook}"
 requested_visible_windows="${CAT_VISIBLE_WINDOWS:-0}"
+for system_path_entry in /usr/local/sbin /usr/sbin /sbin; do
+    case ":$PATH:" in
+        *":$system_path_entry:"*) ;;
+        *) PATH="$PATH:$system_path_entry" ;;
+    esac
+done
+export PATH
+
 if [ "$requested_visible_windows" = "1" ]; then
     visible_windows=1
     display="${CAT_DISPLAY:-${DISPLAY:-:0}}"
