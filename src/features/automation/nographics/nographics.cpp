@@ -16,6 +16,8 @@ V  o o  V  file: src/features/automation/nographics/nographics.cpp
 #include <cstdint>
 #include <cstring>
 #include <initializer_list>
+#include <string_view>
+#include <vector>
 
 #include "core/memory/byte_patch.hpp"
 #include "core/print.hpp"
@@ -102,68 +104,218 @@ std::array<byte_patch, replay_ui_nullcheck_patch_count> replay_ui_nullcheck_patc
 std::array<byte_patch, character_info_command_patch_count> character_info_command_patches{};
 byte_patch econ_item_definition_index_patch{};
 
-bool has_extension(const char* filename, const char* extension)
+char normalize_path_char(const char value)
 {
-  if (filename == nullptr || extension == nullptr)
+  if (value == '\\')
   {
-    return false;
+    return '/';
   }
 
-  const char* dot = std::strrchr(filename, '.');
-  return dot != nullptr && std::strcmp(dot, extension) == 0;
+  if (value >= 'A' && value <= 'Z')
+  {
+    return static_cast<char>(value - 'A' + 'a');
+  }
+
+  return value;
 }
 
-bool blacklisted_file(const char* filename)
+bool path_equals(const std::string_view path, const std::string_view expected)
 {
-  constexpr std::array<const char*, 8> blacklist = {
-    ".ani", ".wav", ".mp3", ".vvd", ".vtx", ".vtf", ".vfe", ".cache"
-  };
-
-  if (filename == nullptr || std::strncmp(filename, "materials/console/", 18) == 0)
+  if (path.size() != expected.size())
   {
     return false;
   }
 
-  const std::size_t length = std::strlen(filename);
-  if (length <= 3)
+  for (std::size_t index = 0; index < expected.size(); ++index)
+  {
+    if (normalize_path_char(path[index]) != normalize_path_char(expected[index]))
+    {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool path_starts_with(const std::string_view path, const std::string_view prefix)
+{
+  if (path.size() < prefix.size())
   {
     return false;
   }
 
-  const char* extension = std::strrchr(filename, '.');
-  if (extension == nullptr)
+  return path_equals(path.substr(0, prefix.size()), prefix);
+}
+
+bool path_ends_with(const std::string_view path, const std::string_view suffix)
+{
+  if (path.size() < suffix.size())
   {
     return false;
   }
 
-  if (std::strcmp(extension, ".vmt") == 0)
-  {
-    return std::strstr(filename, "corner") == nullptr &&
-           std::strstr(filename, "hud") == nullptr &&
-           std::strstr(filename, "vgui") == nullptr;
-  }
+  return path_equals(path.substr(path.size() - suffix.size()), suffix);
+}
 
-  if (std::strstr(filename, "sound.cache") != nullptr ||
-      std::strstr(filename, "tf2_sound") != nullptr ||
-      std::strstr(filename, "game_sounds") != nullptr ||
-      std::strncmp(filename, "sound/player/footsteps", 22) == 0)
+bool path_contains(const std::string_view path, const std::string_view needle)
+{
+  if (needle.empty() || path.size() < needle.size())
   {
     return false;
   }
 
-  if (has_extension(filename, ".mdl"))
+  for (std::size_t index = 0; index <= path.size() - needle.size(); ++index)
   {
-    return false;
+    if (path_equals(path.substr(index, needle.size()), needle))
+    {
+      return true;
+    }
   }
 
-  if (std::strncmp(filename, "/decal", 6) == 0)
+  return false;
+}
+
+bool path_contains_any(const std::string_view path, std::initializer_list<std::string_view> needles)
+{
+  for (const std::string_view needle : needles)
+  {
+    if (path_contains(path, needle))
+    {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+std::string_view file_extension(const std::string_view filename)
+{
+  const auto slash = filename.find_last_of("/\\");
+  const auto dot = filename.find_last_of('.');
+  if (dot == std::string_view::npos || (slash != std::string_view::npos && dot < slash))
+  {
+    return {};
+  }
+
+  return filename.substr(dot);
+}
+
+bool is_soundscape_script(const std::string_view filename)
+{
+  return path_equals(filename, "scripts/soundscapes_manifest.txt") ||
+         (path_starts_with(filename, "scripts/soundscapes_") && path_ends_with(filename, ".txt"));
+}
+
+bool is_required_model_asset(const std::string_view filename, const std::string_view extension)
+{
+  if (path_equals(extension, ".mdl") || path_equals(extension, ".phy"))
   {
     return true;
   }
 
-  for (const char* blocked_extension : blacklist)
+  if (!path_equals(extension, ".ani") && !path_equals(extension, ".vvd") && !path_equals(extension, ".vtx"))
   {
-    if (std::strcmp(extension, blocked_extension) == 0)
+    return false;
+  }
+
+  // Player/building/projectile model companions are not just graphics for us:
+  // model setup feeds hitboxes, bones, and some collideable bounds used by aim traces.
+  return path_contains_any(filename, {
+    "models/player/",
+    "models/bots/",
+    "models/buildables/",
+    "models/weapons/",
+    "models/items/",
+    "models/pickups/",
+    "models/props_halloween/",
+    "models/props_medieval/",
+    "models/flag/",
+    "models/custom/",
+    "player/",
+    "bots/",
+    "buildables/",
+    "weapons/",
+    "empty.mdl",
+    "error.mdl",
+  });
+}
+
+bool should_block_file(const char* raw_filename)
+{
+  constexpr std::array<std::string_view, 16> blocked_extensions = {
+    ".ani", ".wav", ".mp3", ".vvd", ".vtx", ".vtf", ".vfe", ".cache",
+    ".jpg", ".png", ".tga", ".dds", ".bik", ".webm", ".vcd", ".pcf",
+  };
+
+  if (raw_filename == nullptr)
+  {
+    return false;
+  }
+
+  const std::string_view filename{ raw_filename };
+  if (filename.size() <= 3)
+  {
+    return false;
+  }
+
+  if (is_soundscape_script(filename) ||
+      path_starts_with(filename, "materials/console/") ||
+      path_starts_with(filename, "debug/"))
+  {
+    return false;
+  }
+
+  if (path_starts_with(filename, "replay/") ||
+      path_starts_with(filename, "resource/replay/") ||
+      path_starts_with(filename, "materials/vgui/replay/") ||
+      path_starts_with(filename, "media/") ||
+      path_starts_with(filename, "videos/"))
+  {
+    return true;
+  }
+
+  const std::string_view extension = file_extension(filename);
+  if (extension.empty())
+  {
+    return false;
+  }
+
+  if (path_equals(extension, ".bsp") || path_equals(extension, ".nav") || is_required_model_asset(filename, extension))
+  {
+    return false;
+  }
+
+  if (path_equals(extension, ".vmt"))
+  {
+    return !path_contains(filename, "corner") &&
+           !path_contains(filename, "hud") &&
+           !path_contains(filename, "vgui") &&
+           !path_contains(filename, "console");
+  }
+
+  if (path_contains(filename, "sound.cache") ||
+      path_contains(filename, "tf2_sound") ||
+      path_contains(filename, "game_sounds") ||
+      path_starts_with(filename, "sound/player/footsteps"))
+  {
+    return false;
+  }
+
+  if (path_starts_with(filename, "/decal") ||
+      path_starts_with(filename, "decal") ||
+      path_starts_with(filename, "materials/decals/") ||
+      path_starts_with(filename, "sprites/") ||
+      path_contains(filename, "skybox") ||
+      path_contains(filename, "detail") ||
+      path_contains(filename, "ambient") ||
+      (path_contains(filename, "soundscape") && !path_equals(extension, ".txt")))
+  {
+    return true;
+  }
+
+  for (const std::string_view blocked_extension : blocked_extensions)
+  {
+    if (path_equals(extension, blocked_extension))
     {
       return true;
     }
@@ -186,7 +338,7 @@ bool hook_vtable(void** vtable, int index, void* hook, function_type* original)
 
 file_handle_t open_hook(void* this_ptr, const char* filename, const char* options, const char* path_id)
 {
-  if (blacklisted_file(filename))
+  if (should_block_file(filename))
   {
     return nullptr;
   }
@@ -194,14 +346,19 @@ file_handle_t open_hook(void* this_ptr, const char* filename, const char* option
   return open_original(this_ptr, filename, options, path_id);
 }
 
-bool precache_hook(void*, const char*, const char*)
+bool precache_hook(void* this_ptr, const char* filename, const char* path_id)
 {
-  return true;
+  if (should_block_file(filename))
+  {
+    return false;
+  }
+
+  return precache_original(this_ptr, filename, path_id);
 }
 
 bool read_file_hook(void* this_ptr, const char* filename, const char* path, void* buffer, int max_bytes, int starting_byte, void* alloc_fn)
 {
-  if (blacklisted_file(filename))
+  if (should_block_file(filename))
   {
     return false;
   }
@@ -216,7 +373,7 @@ const char* find_next_hook(void* this_ptr, file_find_handle_t handle)
   {
     filename = find_next_original(this_ptr, handle);
   }
-  while (filename != nullptr && blacklisted_file(filename));
+  while (filename != nullptr && should_block_file(filename));
 
   return filename;
 }
@@ -224,7 +381,7 @@ const char* find_next_hook(void* this_ptr, file_find_handle_t handle)
 const char* find_first_hook(void* this_ptr, const char* wildcard, file_find_handle_t* handle)
 {
   const char* filename = find_first_original(this_ptr, wildcard, handle);
-  while (filename != nullptr && handle != nullptr && blacklisted_file(filename))
+  while (filename != nullptr && handle != nullptr && should_block_file(filename))
   {
     filename = find_next_original(this_ptr, *handle);
   }
@@ -239,7 +396,7 @@ int async_read_multiple_hook(void* this_ptr, const void* requests, int request_c
 
 file_handle_t open_ex_hook(void* this_ptr, const char* filename, const char* options, unsigned int flags, const char* path_id, char** resolved_filename)
 {
-  if (blacklisted_file(filename))
+  if (should_block_file(filename))
   {
     return nullptr;
   }
@@ -249,7 +406,7 @@ file_handle_t open_ex_hook(void* this_ptr, const char* filename, const char* opt
 
 int read_file_ex_hook(void* this_ptr, const char* filename, const char* path, void** buffer, bool null_terminate, bool optimal_alloc, int max_bytes, int starting_byte, void* alloc_fn)
 {
-  if (blacklisted_file(filename))
+  if (should_block_file(filename))
   {
     return 0;
   }
@@ -257,8 +414,36 @@ int read_file_ex_hook(void* this_ptr, const char* filename, const char* path, vo
   return read_file_ex_original(this_ptr, filename, path, buffer, null_terminate, optimal_alloc, max_bytes, starting_byte, alloc_fn);
 }
 
-void add_files_to_cache_hook(void*, file_cache_handle_t, const char**, int, const char*)
+void add_files_to_cache_hook(void* this_ptr, file_cache_handle_t cache_id, const char** filenames, int filename_count, const char* path_id)
 {
+  if (filenames == nullptr || filename_count <= 0)
+  {
+    return;
+  }
+
+  std::vector<const char*> allowed_filenames{};
+  allowed_filenames.reserve(static_cast<std::size_t>(filename_count));
+
+  for (int index = 0; index < filename_count; ++index)
+  {
+    const char* filename = filenames[index];
+    if (filename != nullptr && !should_block_file(filename))
+    {
+      allowed_filenames.emplace_back(filename);
+    }
+  }
+
+  if (allowed_filenames.empty())
+  {
+    return;
+  }
+
+  add_files_to_cache_original(
+    this_ptr,
+    cache_id,
+    allowed_filenames.data(),
+    static_cast<int>(allowed_filenames.size()),
+    path_id);
 }
 
 void* resolve_rip_target(std::uint8_t* instruction, int displacement_offset, int instruction_size)
@@ -710,7 +895,7 @@ bool is_enabled()
 
 bool should_skip_rendering_hooks()
 {
-  return textmode_build || config.misc.exploits.null_graphics_render_stubs;
+  return textmode_build || (config.misc.exploits.null_graphics && config.misc.exploits.null_graphics_render_stubs);
 }
 
 bool should_use_aimbot_trace_fallback()
