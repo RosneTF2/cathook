@@ -71,6 +71,29 @@ run_as_root() {
     fi
 }
 
+restore_repo_git_permissions() {
+    if [ "$(id -u)" -ne 0 ] || [ -z "${SUDO_UID:-}" ] || [ -z "${SUDO_GID:-}" ]; then
+        return
+    fi
+
+    if [ ! -d "$repo_root/.git" ]; then
+        return
+    fi
+
+    if find "$repo_root/.git" \( ! -user "$SUDO_UID" -o ! -group "$SUDO_GID" \) -print -quit 2>/dev/null | grep -q .; then
+        echo "Fixing .git ownership for sudo user before repository update..."
+        chown -R "$SUDO_UID:$SUDO_GID" "$repo_root/.git"
+    fi
+}
+
+run_repo_git() {
+    if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_UID:-}" ] && command -v sudo >/dev/null 2>&1; then
+        sudo -H -u "#$SUDO_UID" git -C "$repo_root" "$@"
+    else
+        git -C "$repo_root" "$@"
+    fi
+}
+
 user_home_path() {
     local user_name="${SUDO_USER:-$USER}"
 
@@ -203,20 +226,20 @@ ensure_shared_steamapps() {
 update_origin_url() {
     local current_url
 
-    current_url="$(git -C "$repo_root" config --get remote.origin.url || true)"
+    current_url="$(run_repo_git config --get remote.origin.url || true)"
     if [ -n "$repo_url" ] && [ "$current_url" != "$repo_url" ]; then
-        git -C "$repo_root" remote set-url origin "$repo_url"
+        run_repo_git remote set-url origin "$repo_url"
         echo "Updated origin remote to $repo_url"
     fi
 }
 
 discard_local_tracked_changes() {
-    if [ -z "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ]; then
+    if [ -z "$(run_repo_git status --porcelain --untracked-files=no)" ]; then
         return
     fi
 
     echo "Discarding local tracked changes before updating..."
-    git -C "$repo_root" reset --hard
+    run_repo_git reset --hard
 }
 
 update_repo() {
@@ -228,13 +251,14 @@ update_repo() {
         return
     fi
 
-    if git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        old_script="$(git -C "$repo_root" rev-parse HEAD:botpanel/update 2>/dev/null || true)"
+    if run_repo_git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        restore_repo_git_permissions
+        old_script="$(run_repo_git rev-parse HEAD:botpanel/update 2>/dev/null || true)"
         update_origin_url
         discard_local_tracked_changes
-        git -C "$repo_root" pull --ff-only
-        git -C "$repo_root" submodule update --init --recursive
-        new_script="$(git -C "$repo_root" rev-parse HEAD:botpanel/update 2>/dev/null || true)"
+        run_repo_git pull --ff-only
+        run_repo_git submodule update --init --recursive
+        new_script="$(run_repo_git rev-parse HEAD:botpanel/update 2>/dev/null || true)"
 
         if [ -n "$old_script" ] && [ -n "$new_script" ] && [ "$old_script" != "$new_script" ]; then
             echo "Update script changed during pull; restarting."

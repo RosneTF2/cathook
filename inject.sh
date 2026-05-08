@@ -277,8 +277,27 @@ choose_auto_update_preference() {
     return 1
 }
 
+restore_repo_git_permissions() {
+    if [ "$(id -u)" -ne 0 ] || [ -z "${SUDO_UID:-}" ] || [ -z "${SUDO_GID:-}" ]; then
+        return
+    fi
+
+    if [ ! -d "$SCRIPT_DIR/.git" ]; then
+        return
+    fi
+
+    if find "$SCRIPT_DIR/.git" \( ! -user "$SUDO_UID" -o ! -group "$SUDO_GID" \) -print -quit 2>/dev/null | grep -q .; then
+        echo "Fixing .git ownership for sudo user before auto update..."
+        chown -R "$SUDO_UID:$SUDO_GID" "$SCRIPT_DIR/.git"
+    fi
+}
+
 run_repo_git() {
-    git -C "$SCRIPT_DIR" -c "safe.directory=$SCRIPT_DIR" "$@"
+    if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_UID:-}" ] && command -v sudo >/dev/null 2>&1; then
+        sudo -H -u "#$SUDO_UID" git -C "$SCRIPT_DIR" -c "safe.directory=$SCRIPT_DIR" "$@"
+    else
+        git -C "$SCRIPT_DIR" -c "safe.directory=$SCRIPT_DIR" "$@"
+    fi
 }
 
 discard_local_tracked_changes() {
@@ -325,6 +344,8 @@ check_for_updates() {
         echo "Auto update skipped: $SCRIPT_DIR is not a git checkout."
         return 0
     fi
+
+    restore_repo_git_permissions
 
     upstream=$(run_repo_git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
     if [ -z "$upstream" ]; then

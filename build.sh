@@ -114,9 +114,24 @@ restore_workspace_permissions() {
 
 trap restore_workspace_permissions EXIT
 
+restore_git_permissions() {
+    if [ "$(id -u)" -ne 0 ] || [ -z "${SUDO_UID:-}" ] || [ -z "${SUDO_GID:-}" ]; then
+        return
+    fi
+
+    if [ ! -d "$project_root/.git" ]; then
+        return
+    fi
+
+    if find "$project_root/.git" \( ! -user "$SUDO_UID" -o ! -group "$SUDO_GID" \) -print -quit 2>/dev/null | grep -q .; then
+        echo "Fixing .git ownership for sudo user before update check..."
+        chown -R "$SUDO_UID:$SUDO_GID" "$project_root/.git"
+    fi
+}
+
 run_git() {
     if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_UID:-}" ] && command -v sudo >/dev/null 2>&1; then
-        sudo -u "#$SUDO_UID" git -C "$project_root" "$@"
+        sudo -H -u "#$SUDO_UID" git -C "$project_root" "$@"
     else
         git -C "$project_root" "$@"
     fi
@@ -141,6 +156,8 @@ update_project_if_needed() {
         echo "Skipping update check: $project_root is not a git repository."
         return
     fi
+
+    restore_git_permissions
 
     local upstream_branch
     upstream_branch="$(run_git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
