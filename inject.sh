@@ -292,13 +292,22 @@ discard_local_tracked_changes() {
 
 rebuild_after_update() {
     local build_arg="--default"
+    local build_script="$SCRIPT_DIR/build.sh"
 
     if [ "$CATHOOK_BINARY" = "libcathooktextmode.so" ]; then
         build_arg="--textmode"
     fi
 
+    if [ ! -x "$build_script" ]; then
+        echo "Fixing executable permission on ./build.sh..."
+        if ! chmod 0755 "$build_script"; then
+            echo "Auto update failed: could not make ./build.sh executable." >&2
+            return 1
+        fi
+    fi
+
     echo "Rebuilding Cat with ./build.sh $build_arg..."
-    CATHOOK_ROOT="$CATHOOK_ROOT" "$SCRIPT_DIR/build.sh" "$build_arg"
+    CATHOOK_ROOT="$CATHOOK_ROOT" "$build_script" "$build_arg"
 }
 
 check_for_updates() {
