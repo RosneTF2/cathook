@@ -98,6 +98,7 @@ V  o o  V  file: src/cathook.cpp
 #include "core/hooks/in_cond.cpp"
 #include "core/hooks/forced_material_override.cpp"
 #include "core/hooks/draw_model_execute.cpp"
+#include "core/hooks/host_is_secure_server_allowed.cpp"
 #include "core/hooks/load_white_list.cpp"
 #include "core/hooks/should_draw_local_player.cpp"
 #include "core/hooks/should_draw_this_player.cpp"
@@ -1191,6 +1192,12 @@ bool initialize_game_runtime() {
   cl_read_packets_original = (std::int64_t (*)(char))sigscan_module("engine.so", sigs::cl_read_packets);
   error_assert(cl_read_packets_original == nullptr, "Failed to find CL_ReadPackets");
 
+  host_is_secure_server_allowed_original =
+    reinterpret_cast<host_is_secure_server_allowed_fn>(sigscan_module("engine.so", sigs::host_is_secure_server_allowed));
+  if (host_is_secure_server_allowed_original == nullptr) {
+    print("Failed to find Host_IsSecureServerAllowed; VAC bypass will only force the backing flag\n");
+  }
+
   region_selector_request_queue_for_match_original =
     (void (*)(void*, unsigned int))sigscan_module("client.so", sigs::request_queue_for_match);
   if (region_selector_request_queue_for_match_original == nullptr) {
@@ -1273,6 +1280,14 @@ bool initialize_game_runtime() {
 
   rv = funchook_prepare(funchook, (void**)&cl_read_packets_original, (void*)cl_read_packets_hook);
   error_assert(rv != 0, "Failed to prepare CL_ReadPackets hook\n");
+
+  if (host_is_secure_server_allowed_original != nullptr) {
+    rv = funchook_prepare(
+      funchook,
+      (void**)&host_is_secure_server_allowed_original,
+      (void*)host_is_secure_server_allowed_hook);
+    error_assert(rv != 0, "Failed to prepare Host_IsSecureServerAllowed hook\n");
+  }
 
   if (region_selector_request_queue_for_match_original != nullptr) {
     rv = funchook_prepare(

@@ -542,28 +542,6 @@ void send_voice_command(int menu, int command)
   engine->client_cmd_unrestricted(command_text);
 }
 
-bool* get_allow_secure_servers_flag()
-{
-  static bool initialized = false;
-  static bool* allow_secure_servers = nullptr;
-
-  if (initialized)
-  {
-    return allow_secure_servers;
-  }
-
-  initialized = true;
-  auto* match = reinterpret_cast<std::uint8_t*>(sigscan_module("engine.so", sigs::allow_secure_servers_flag_ref));
-  if (match == nullptr)
-  {
-    return nullptr;
-  }
-
-  const auto displacement = *reinterpret_cast<std::int32_t*>(match + 3);
-  allow_secure_servers = reinterpret_cast<bool*>(match + 7 + displacement);
-  return allow_secure_servers;
-}
-
 void log_queue_debug(const char* fmt, ...)
 {
 #ifdef CATHOOK_DEBUG_AUTO_QUEUE
@@ -1089,6 +1067,26 @@ void automation_controller::on_game_event(GameEvent* event)
 
 void automation_controller::apply_misc_convars()
 {
+  auto* allow_secure_servers = get_allow_secure_servers_flag();
+  if (allow_secure_servers != nullptr)
+  {
+    if (config.misc.exploits.vac_bypass)
+    {
+      if (!vac_bypass_applied_)
+      {
+        original_allow_secure_servers_ = *allow_secure_servers;
+        vac_bypass_applied_ = true;
+      }
+
+      *allow_secure_servers = true;
+    }
+    else if (vac_bypass_applied_)
+    {
+      *allow_secure_servers = original_allow_secure_servers_;
+      vac_bypass_applied_ = false;
+    }
+  }
+
   if (convar_system == nullptr)
   {
     return;
@@ -1135,26 +1133,6 @@ void automation_controller::apply_misc_convars()
     {
       sv_cheats->set_int(original_sv_cheats_value_);
       cheats_bypass_applied_ = false;
-    }
-  }
-
-  auto* allow_secure_servers = get_allow_secure_servers_flag();
-  if (allow_secure_servers != nullptr)
-  {
-    if (config.misc.exploits.vac_bypass)
-    {
-      if (!vac_bypass_applied_)
-      {
-        original_allow_secure_servers_ = *allow_secure_servers;
-        vac_bypass_applied_ = true;
-      }
-
-      *allow_secure_servers = true;
-    }
-    else if (vac_bypass_applied_)
-    {
-      *allow_secure_servers = original_allow_secure_servers_;
-      vac_bypass_applied_ = false;
     }
   }
 
