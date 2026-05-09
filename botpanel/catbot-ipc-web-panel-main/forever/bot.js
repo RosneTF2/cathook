@@ -1409,7 +1409,7 @@ class Bot extends EventEmitter {
             .replace("%NETWORK%", USER.SUPPORTS_FJ_NET ? `--net=${USER.interface}` : `--netns=catbotns${this.botid}`)
             // Home folder
             .replace("%HOME%", self.home.replace(/"/g, '\\"'))
-            .replace("%STEAM%", shell_quote(steambin)),
+            .replace("%STEAM%", steambin),
             self.spawnOptions);
         self.logSteam = fs.createWriteStream('./logs/' + self.name + '.steam.log');
         self.logSteam.on('error', (err) => { self.log(`error on logSteam pipe: ${err}`) });
