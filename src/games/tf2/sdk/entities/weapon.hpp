@@ -825,8 +825,8 @@ public:
 
   bool can_fire_critical_shot(bool headshot = false) {
     void** vtable = *(void***)this;
-    auto can_fire_critical_shot_fn = (bool (*)(void*, bool))vtable[497];
-    return can_fire_critical_shot_fn(this, headshot);
+    auto can_fire_critical_shot_fn = (bool (*)(void*, bool, void*))vtable[497];
+    return can_fire_critical_shot_fn(this, headshot, nullptr);
   }
 
   bool can_fire_random_critical_shot(float crit_chance) {

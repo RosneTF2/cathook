@@ -68,8 +68,40 @@ struct aimbot_point {
   float fov = FLT_MAX;
 };
 
+inline static float aimbot_scoped_begin_time = 0.0f;
+
 inline bool aimbot_vec3_is_finite(const Vec3& value) {
   return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+inline void reset_aimbot_scope_timing() {
+  aimbot_scoped_begin_time = 0.0f;
+}
+
+inline void update_aimbot_scope_timing(Player* localplayer) {
+  if (localplayer == nullptr || !localplayer->is_scoped()) {
+    reset_aimbot_scope_timing();
+    return;
+  }
+
+  if (aimbot_scoped_begin_time > 0.0f) {
+    return;
+  }
+
+  aimbot_scoped_begin_time = global_vars != nullptr
+    ? global_vars->curtime
+    : localplayer->get_tickbase() * static_cast<float>(TICK_INTERVAL);
+}
+
+inline float aimbot_tracked_scoped_time(Player* localplayer) {
+  if (localplayer == nullptr || !localplayer->is_scoped() || aimbot_scoped_begin_time <= 0.0f) {
+    return 0.0f;
+  }
+
+  const float current_time = global_vars != nullptr
+    ? global_vars->curtime
+    : localplayer->get_tickbase() * static_cast<float>(TICK_INTERVAL);
+  return std::max(current_time - aimbot_scoped_begin_time, 0.0f);
 }
 
 inline float aimbot_distance_squared(const Vec3& left, const Vec3& right) {
@@ -809,37 +841,88 @@ inline bool aimbot_use_key_active() {
   return config.aimbot.key.button == SDLK_UNKNOWN || is_button_active(config.aimbot.key);
 }
 
-inline bool aimbot_scoped_only_ready(Player* localplayer, Weapon* weapon) {
-  if (localplayer == nullptr || weapon == nullptr) return false;
-  if (!weapon->is_sniper_rifle()) return true;
-  return !config.aimbot.scoped_only || localplayer->is_scoped();
+inline bool aimbot_is_scoped_hitscan_rifle(Weapon* weapon) {
+  if (weapon == nullptr) {
+    return false;
+  }
+
+  switch (weapon->get_weapon_id()) {
+  case TF_WEAPON_SNIPERRIFLE:
+  case TF_WEAPON_SNIPERRIFLE_DECAP:
+    return true;
+  default:
+    return false;
+  }
 }
 
-inline bool aimbot_wait_for_headshot_ready(Player* localplayer, Weapon* weapon) {
-  if (!config.aimbot.wait_for_headshot || localplayer == nullptr || weapon == nullptr) return true;
-  if (!weapon->is_headshot_weapon()) return true;
-
-  if (localplayer->get_tf_class() == tf_class::SPY) {
-    return weapon->can_ambassador_headshot();
+inline bool aimbot_weapon_requires_scope(Weapon* weapon) {
+  if (weapon == nullptr) {
+    return false;
   }
 
-  if (localplayer->get_tf_class() != tf_class::SNIPER || !weapon->is_sniper_rifle()) return true;
-  if (attribute_manager != nullptr && attribute_manager->attrib_hook_value(0, "set_weapon_mode", weapon->to_entity()) == 1) return false;
+  if (weapon->get_def_id() == Sniper_m_TheMachina) {
+    return true;
+  }
+
+  return attribute_manager != nullptr &&
+    attribute_manager->attrib_hook_value(0, "sniper_only_fire_zoomed", weapon->to_entity()) != 0;
+}
+
+inline bool aimbot_scoped_only_ready(Player* localplayer, Weapon* weapon) {
+  if (localplayer == nullptr || weapon == nullptr) return false;
+  if (localplayer->is_scoped()) return true;
+  if (aimbot_weapon_requires_scope(weapon)) return false;
+  if (!config.aimbot.scoped_only) return true;
+  return !aimbot_is_scoped_hitscan_rifle(weapon);
+}
+
+inline bool aimbot_sniper_headshot_ready(Player* localplayer, Weapon* weapon) {
+  if (localplayer == nullptr || weapon == nullptr) {
+    return false;
+  }
+
+  if (weapon->can_fire_critical_shot(true)) {
+    return true;
+  }
+
   if (attribute_manager != nullptr && attribute_manager->attrib_hook_value(0, "sniper_no_headshot_without_full_charge", weapon->to_entity()) != 0) {
-    if (weapon->get_charged_damage() < 150.0f) return false;
+    return weapon->get_charged_damage() >= 150.0f;
   }
 
-  if (attribute_manager != nullptr && attribute_manager->attrib_hook_value(0, "sniper_crit_no_scope", weapon->to_entity()) != 0) return true;
-  if (!localplayer->is_scoped() || localplayer->get_fov() >= localplayer->get_default_fov()) return false;
+  if (attribute_manager != nullptr && attribute_manager->attrib_hook_value(0, "sniper_crit_no_scope", weapon->to_entity()) != 0) {
+    return true;
+  }
 
-  const float tracked_scoped_time = aimbot_tracked_scoped_time(localplayer);
-  if (tracked_scoped_time >= 0.2f) {
+  if (!localplayer->is_scoped() || localplayer->get_fov() >= localplayer->get_default_fov()) {
+    return false;
+  }
+
+  if (aimbot_tracked_scoped_time(localplayer) >= 0.2f) {
     return true;
   }
 
   const float current_time = global_vars != nullptr ? global_vars->curtime : localplayer->get_tickbase() * TICK_INTERVAL;
-  const float fov_scoped_time = current_time - localplayer->get_fov_time();
-  return fov_scoped_time >= 0.2f;
+  return current_time - localplayer->get_fov_time() >= 0.2f;
+}
+
+inline bool aimbot_wait_for_headshot_ready(Player* localplayer, Weapon* weapon, const aimbot_candidate& candidate) {
+  if (!config.aimbot.wait_for_headshot || localplayer == nullptr || weapon == nullptr) return true;
+  if (candidate.player == nullptr || !weapon->is_headshot_weapon()) return true;
+
+  switch (weapon->get_weapon_id()) {
+  case TF_WEAPON_SNIPERRIFLE:
+  case TF_WEAPON_SNIPERRIFLE_DECAP:
+    if (!localplayer->is_scoped()) return true;
+    return aimbot_sniper_headshot_ready(localplayer, weapon);
+  case TF_WEAPON_SNIPERRIFLE_CLASSIC:
+    return aimbot_sniper_headshot_ready(localplayer, weapon);
+  case TF_WEAPON_REVOLVER:
+    return attribute_manager == nullptr ||
+      attribute_manager->attrib_hook_value(0, "set_weapon_mode", weapon->to_entity()) != 1 ||
+      weapon->can_ambassador_headshot();
+  default:
+    return true;
+  }
 }
 
 inline bool aimbot_is_projectile_weapon(Weapon* weapon) {
