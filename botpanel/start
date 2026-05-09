@@ -216,6 +216,8 @@ install_dependency_packages() {
 
     if command -v apt-get >/dev/null 2>&1; then
         local apt_packages=(
+            dbus
+            dbus-x11
             firejail
             iptables
             iproute2
@@ -287,6 +289,10 @@ collect_missing_runtime_dependencies() {
 
     if need_command firejail; then
         missing+=("firejail")
+    fi
+
+    if need_command dbus-run-session && need_command dbus-launch; then
+        missing+=("dbus or dbus-x11")
     fi
 
     if [ "$visible_windows" != "1" ] && need_command xpra && need_command Xvfb; then
