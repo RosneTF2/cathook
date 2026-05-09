@@ -31,6 +31,7 @@ else
     use_xvfb=0
 fi
 port="${CAT_IPC_PORT:-7655}"
+textmode_game="${CAT_TEXTMODE_GAME:-1}"
 launcher_version="legacy_style_runtime_bundle_xpra"
 xpra_log="${CAT_XPRA_LOG:-/tmp/cat-catbot-xpra.log}"
 xvfb_log="${CAT_XVFB_LOG:-/tmp/cat-catbot-xvfb.log}"
@@ -959,7 +960,7 @@ start_panel() {
             XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}" \
             CAT_IPC_PORT="$port" \
             CAT_VISIBLE_WINDOWS="$visible_windows" \
-            CAT_TEXTMODE_GAME="${CAT_TEXTMODE_GAME:-}" \
+            CAT_TEXTMODE_GAME="$textmode_game" \
             CAT_STEAMWEBHELPER_CLEANUP="${CAT_STEAMWEBHELPER_CLEANUP:-0}" \
             CAT_STEAMWEBHELPER_CLEANUP_SECONDS="${CAT_STEAMWEBHELPER_CLEANUP_SECONDS:-10}" \
             CAT_XPRA_LOG="$xpra_log" \
@@ -978,7 +979,7 @@ start_panel() {
         XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}" \
         CAT_IPC_PORT="$port" \
         CAT_VISIBLE_WINDOWS="$visible_windows" \
-        CAT_TEXTMODE_GAME="${CAT_TEXTMODE_GAME:-}" \
+        CAT_TEXTMODE_GAME="$textmode_game" \
         CAT_STEAMWEBHELPER_CLEANUP="${CAT_STEAMWEBHELPER_CLEANUP:-0}" \
         CAT_STEAMWEBHELPER_CLEANUP_SECONDS="${CAT_STEAMWEBHELPER_CLEANUP_SECONDS:-10}" \
         CAT_XPRA_LOG="$xpra_log" \

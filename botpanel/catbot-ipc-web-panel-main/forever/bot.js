@@ -16,7 +16,7 @@ const VISIBLE_WINDOWS = process.env.CAT_VISIBLE_WINDOWS === '1';
 const BOT_DISPLAY = process.env.DISPLAY || process.env.CAT_DEFAULT_DISPLAY || ':699';
 const BOT_XAUTHORITY = VISIBLE_WINDOWS ? (process.env.XAUTHORITY || path.join(process.env.HOME || '', '.Xauthority')) : '';
 const XPRA_LOG = process.env.CAT_XPRA_LOG || '/tmp/cat-catbot-xpra.log';
-const TEXTMODE_GAME = process.env.CAT_TEXTMODE_GAME === '1' || (!VISIBLE_WINDOWS && process.env.CAT_TEXTMODE_GAME !== '0');
+const TEXTMODE_GAME = process.env.CAT_TEXTMODE_GAME !== '0';
 const GDB_CRASH_REPORTS = process.env.CAT_GDB_CRASH_REPORTS === '1' || config.gdb_crash_reports === true;
 const discord_reports = process.env.CATHOOK_DISCORD_REPORTS !== '0' && config.discord_reports !== false;
 const discord_webhook_url = process.env.CATHOOK_DISCORD_WEBHOOK_URL || config.discord_webhook_url || 'https://discord.com/api/webhooks/1501401839831093420/2CNm0glVBv3rRw8-nMGS6uZG8vY3wy1O2a_KLhcJVQvA5P1vRg7GFfIbh8J7OZudj5P7';
