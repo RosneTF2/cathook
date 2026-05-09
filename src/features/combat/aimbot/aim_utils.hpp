@@ -409,6 +409,37 @@ inline int aimbot_hitbox_priority(Player* localplayer, Player* target, Weapon* w
   }
 }
 
+inline int aimbot_fallback_hitbox_for_mask(Player* localplayer, Player* target, Weapon* weapon, uint32_t hitbox_mask) {
+  constexpr int fallback_hitboxes[] = {
+    aim_hitbox_head,
+    aim_hitbox_spine_3,
+    aim_hitbox_spine_2,
+    aim_hitbox_spine_1,
+    aim_hitbox_spine_0,
+    aim_hitbox_pelvis,
+    aim_hitbox_left_upper_arm,
+    aim_hitbox_right_upper_arm,
+    aim_hitbox_left_thigh,
+    aim_hitbox_right_thigh
+  };
+
+  int best_hitbox = -1;
+  int best_priority = INT_MAX;
+  for (const int hitbox_id : fallback_hitboxes) {
+    if (!aimbot_hitbox_matches_mask(hitbox_id, hitbox_mask)) {
+      continue;
+    }
+
+    const int priority = aimbot_hitbox_priority(localplayer, target, weapon, hitbox_id);
+    if (priority < best_priority) {
+      best_hitbox = hitbox_id;
+      best_priority = priority;
+    }
+  }
+
+  return best_hitbox;
+}
+
 inline aimbot_point aimbot_find_best_point(Player* localplayer,
   Player* target,
   Weapon* weapon,
@@ -525,8 +556,20 @@ inline aimbot_point aimbot_find_best_point(Player* localplayer,
     return best_point;
   }
 
-  const int fallback_bone = aimbot_default_bone(localplayer, target, weapon);
-  const Vec3 fallback_position = target->get_bone_pos(fallback_bone);
+  const int fallback_hitbox = aimbot_fallback_hitbox_for_mask(localplayer, target, weapon, hitbox_mask);
+  if (fallback_hitbox < 0) {
+    return {};
+  }
+
+  int fallback_bone = 0;
+  Vec3 fallback_position{};
+  if (!target->get_hitbox_center(fallback_hitbox, &fallback_position, &fallback_bone) ||
+      !aimbot_vec3_is_finite(fallback_position)) {
+    fallback_bone = fallback_hitbox == aim_hitbox_head
+      ? target->get_head_bone()
+      : aimbot_default_bone(localplayer, target, weapon);
+    fallback_position = target->get_bone_pos(fallback_bone);
+  }
   if (!aimbot_vec3_is_finite(fallback_position)) {
     return {};
   }
@@ -537,6 +580,8 @@ inline aimbot_point aimbot_find_best_point(Player* localplayer,
 
   best_point.valid = true;
   best_point.bone = fallback_bone;
+  best_point.hitbox = fallback_hitbox;
+  best_point.priority = aimbot_hitbox_priority(localplayer, target, weapon, fallback_hitbox);
   best_point.position = fallback_position;
   best_point.angles = aimbot_calculate_angles_to_position(localplayer->get_shoot_pos(), fallback_position);
   best_point.fov = aimbot_calculate_fov(best_point.angles, original_view_angles);
