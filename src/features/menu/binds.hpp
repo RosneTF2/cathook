@@ -19,6 +19,7 @@ V  o o  V  file: src/features/menu/binds.hpp
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -128,6 +129,11 @@ inline bool& targets_registered() {
 
 inline bool& button_targets_registered() {
   static bool value = false;
+  return value;
+}
+
+inline std::recursive_mutex& bind_mutex() {
+  static std::recursive_mutex value{};
   return value;
 }
 
@@ -263,6 +269,8 @@ inline void register_button_target(
 }
 
 inline void register_builtin_targets() {
+  std::lock_guard lock{bind_mutex()};
+
   if (targets_registered()) {
     return;
   }
@@ -453,6 +461,8 @@ inline void register_builtin_targets() {
 }
 
 inline void register_builtin_button_targets() {
+  std::lock_guard lock{bind_mutex()};
+
   if (button_targets_registered()) {
     return;
   }
@@ -501,6 +511,8 @@ inline bind_entry* ensure_entry(value_t* target, const char* label) {
 }
 
 inline void request_popup(const std::string& target_key, popup_target_type target_type) {
+  std::lock_guard lock{bind_mutex()};
+
   popup_target_key() = target_key;
   popup_target_type_value() = target_type;
   popup_open_requested() = true;
@@ -517,6 +529,8 @@ inline void close_popup_if_target(const std::string& target_key) {
 }
 
 inline void remove_indicator_bind(std::string target_key, popup_target_type target_type) {
+  std::lock_guard lock{bind_mutex()};
+
   if (target_type == popup_target_type::value_bind) {
     auto& value_entries = entries();
     for (auto it = value_entries.begin(); it != value_entries.end();) {
@@ -577,6 +591,8 @@ inline void sync_default(value_t* target, bind_entry* entry, bool changed) {
 }
 
 inline void bindable_checkbox(const char* label, bool* target, bool changed) {
+  std::lock_guard lock{bind_mutex()};
+
   bind_entry* entry = ensure_entry(target, label);
   if (entry != nullptr) {
     entry->widget = widget_type::checkbox;
@@ -586,6 +602,8 @@ inline void bindable_checkbox(const char* label, bool* target, bool changed) {
 }
 
 inline void bindable_combo_int(const char* label, int* target, bool changed, const char* const items[], int item_count) {
+  std::lock_guard lock{bind_mutex()};
+
   bind_entry* entry = ensure_entry(target, label);
   if (entry != nullptr) {
     entry->widget = widget_type::combo_int;
@@ -599,6 +617,8 @@ inline void bindable_combo_int(const char* label, int* target, bool changed, con
 }
 
 inline void bindable_slider_int(const char* label, int* target, bool changed, int minimum, int maximum, const char* format) {
+  std::lock_guard lock{bind_mutex()};
+
   bind_entry* entry = ensure_entry(target, label);
   if (entry != nullptr) {
     entry->widget = widget_type::slider_int;
@@ -611,6 +631,8 @@ inline void bindable_slider_int(const char* label, int* target, bool changed, in
 }
 
 inline void bindable_slider_float(const char* label, float* target, bool changed, float minimum, float maximum, const char* format) {
+  std::lock_guard lock{bind_mutex()};
+
   bind_entry* entry = ensure_entry(target, label);
   if (entry != nullptr) {
     entry->widget = widget_type::slider_float;
@@ -623,6 +645,8 @@ inline void bindable_slider_float(const char* label, float* target, bool changed
 }
 
 inline void handle_input(SDL_Event* event) {
+  std::lock_guard lock{bind_mutex()};
+
   register_builtin_targets();
   register_builtin_button_targets();
 
@@ -654,6 +678,8 @@ inline void handle_input(SDL_Event* event) {
 }
 
 inline void run() {
+  std::lock_guard lock{bind_mutex()};
+
   register_builtin_targets();
   register_builtin_button_targets();
 
@@ -681,6 +707,8 @@ inline void run() {
 }
 
 inline void draw_popup() {
+  std::lock_guard lock{bind_mutex()};
+
   if (popup_open_requested()) {
     ImGui::OpenPopup("bind_popup_context");
     popup_open_requested() = false;
@@ -832,6 +860,8 @@ inline const std::vector<bind_entry>& indicator_entries() {
 }
 
 inline std::vector<indicator_row> collect_indicator_rows() {
+  std::lock_guard lock{bind_mutex()};
+
   register_builtin_targets();
   register_builtin_button_targets();
 
@@ -890,6 +920,8 @@ inline std::vector<indicator_row> collect_indicator_rows() {
 }
 
 inline void save(cathook::core::config_store* store) {
+  std::lock_guard lock{bind_mutex()};
+
   if (store == nullptr) {
     return;
   }
@@ -930,6 +962,8 @@ inline void save(cathook::core::config_store* store) {
 }
 
 inline void load(cathook::core::config_store* store) {
+  std::lock_guard lock{bind_mutex()};
+
   if (store == nullptr) {
     return;
   }
@@ -955,7 +989,8 @@ inline void load(cathook::core::config_store* store) {
     entry.enabled = store->get_bool(prefix + "enabled", true);
     entry.show_in_indicator = store->get_bool(prefix + "show_in_indicator", true);
     reset_button_state(entry.trigger);
-    entry.target = key_to_pointer().contains(entry.target_key) ? key_to_pointer()[entry.target_key] : nullptr;
+    const auto target_it = key_to_pointer().find(entry.target_key);
+    entry.target = target_it != key_to_pointer().end() ? target_it->second : nullptr;
 
     if (entry.type == value_type::boolean) {
       entry.default_value = store->get_bool(prefix + "default_bool", entry.target != nullptr ? *static_cast<bool*>(entry.target) : false);
