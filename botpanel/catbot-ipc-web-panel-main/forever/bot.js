@@ -54,7 +54,8 @@ const STEAMWEBHELPER_CLEANUP_ENABLED = process.env.CAT_STEAMWEBHELPER_CLEANUP ==
 const STEAMWEBHELPER_CLEANUP_DELAY_SECONDS_VALUE = Number.parseInt(process.env.CAT_STEAMWEBHELPER_CLEANUP_SECONDS || '10', 10);
 const STEAMWEBHELPER_CLEANUP_DELAY = (Number.isFinite(STEAMWEBHELPER_CLEANUP_DELAY_SECONDS_VALUE) ? Math.max(0, STEAMWEBHELPER_CLEANUP_DELAY_SECONDS_VALUE) : 10) * 1000;
 // Time to delay individual bot starts by to prevent IPC ID conflicts
-const DELAY_START_TIME = 1000;
+const BOT_START_DELAY_SECONDS_VALUE = Number.parseInt(process.env.CAT_BOT_START_DELAY_SECONDS || '30', 10);
+const DELAY_START_TIME = (Number.isFinite(BOT_START_DELAY_SECONDS_VALUE) ? Math.max(1, BOT_START_DELAY_SECONDS_VALUE) : 30) * 1000;
 const GAME_STARTUP_FATAL_PATTERNS = [
     'AppFramework : Unable to load module engine.so!',
     'Unable to load interface VCvarQuery001 from engine.so'
@@ -147,6 +148,22 @@ function game_startup_log_has_fatal_error(text) {
 
 function steam_startup_log_has_fatal_error(text) {
     return STEAM_STARTUP_FATAL_PATTERNS.some((pattern) => text.includes(pattern));
+}
+
+function steam_webhelper_browser_stalled(text) {
+    if (text.includes('Timed out waiting for webhelper init'))
+        return true;
+
+    const create_browser_position = text.lastIndexOf('CreateBrowser');
+    if (create_browser_position < 0)
+        return false;
+
+    const latest_browser_text = text.slice(create_browser_position);
+    if (latest_browser_text.includes('CreateResponse') || latest_browser_text.includes('BrowserReady'))
+        return false;
+
+    const retry_count = (latest_browser_text.match(/RetryCreateBrowser/g) || []).length;
+    return retry_count >= 20;
 }
 
 function command_succeeds(command, args) {
@@ -1198,6 +1215,45 @@ class Bot extends EventEmitter {
         }
     }
 
+    steam_webhelper_cache_paths() {
+        const home_real_path = fs.existsSync(this.home) ? fs.realpathSync(this.home) : this.home;
+        const cache_paths = [];
+
+        for (const steam_root of this.steamInstallCandidates()) {
+            cache_paths.push(path.join(steam_root, 'config/htmlcache'));
+            cache_paths.push(path.join(steam_root, 'appcache/httpcache'));
+        }
+
+        return unique_paths(cache_paths).filter((cache_path) => {
+            try {
+                const cache_real_path = fs.realpathSync(cache_path);
+                return cache_real_path === home_real_path || path_is_inside(cache_real_path, home_real_path);
+            } catch (error) {
+                return false;
+            }
+        });
+    }
+
+    clear_steam_webhelper_cache() {
+        const removed_paths = new Set();
+
+        for (const cache_path of this.steam_webhelper_cache_paths()) {
+            try {
+                const cache_real_path = fs.realpathSync(cache_path);
+                if (removed_paths.has(cache_real_path))
+                    continue;
+
+                fs.rmSync(cache_real_path, { recursive: true, force: true });
+                removed_paths.add(cache_real_path);
+            } catch (error) {
+                this.log(`Failed to clear Steam webhelper cache ${cache_path}: ${error.message}`);
+            }
+        }
+
+        if (removed_paths.size)
+            this.log(`Cleared Steam webhelper cache paths: ${[...removed_paths].join(', ')}`);
+    }
+
     logSteamTails(prefix, line_count) {
         const logs = this.existingSteamLogPaths();
         if (!logs.length) {
@@ -1218,6 +1274,21 @@ class Bot extends EventEmitter {
             try {
                 const log_text = fs.readFileSync(log_path, 'utf8');
                 if (steam_startup_log_has_fatal_error(log_text))
+                    return log_path;
+            } catch (error) { }
+        }
+
+        return null;
+    }
+
+    steam_webhelper_stall_log_path() {
+        for (var log_path of this.existingSteamLogPaths()) {
+            if (path.basename(log_path) !== 'steamui_html.txt')
+                continue;
+
+            try {
+                const log_text = fs.readFileSync(log_path, 'utf8');
+                if (steam_webhelper_browser_stalled(log_text))
                     return log_path;
             } catch (error) { }
         }
@@ -1388,6 +1459,7 @@ class Bot extends EventEmitter {
             fs.chownSync(self.home, USER.uid, USER.uid);
         }
         self.prepareSteamInstall();
+        self.clear_steam_webhelper_cache();
         self.clearSteamStartupLogs();
         const xauthority_path = self.ensureVisibleXauthority();
 
@@ -1979,6 +2051,15 @@ class Bot extends EventEmitter {
                         this.shouldRun = false;
                         this.shouldRestart = false;
                         this.killSteam();
+                        return;
+                    }
+
+                    const stalled_webhelper_log_path = this.steam_webhelper_stall_log_path();
+                    if (stalled_webhelper_log_path) {
+                        this.log(`[ERROR] Steam webhelper browser startup stalled in ${stalled_webhelper_log_path}; restarting Steam with a fresh webhelper cache.`);
+                        this.logSteamTails('Steam webhelper stall log tail', 12);
+                        this.shouldRestart = true;
+                        this.time_steamWorking = 0;
                         return;
                     }
 
