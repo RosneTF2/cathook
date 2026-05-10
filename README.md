@@ -87,7 +87,8 @@ sudo TEXTMODE=1 ./inject.sh
 ```
 
 `inject.sh` refreshes `/opt/cathook/assets` and clears old cathook/exception logs before loading the library.
-It also copies any bundled `/opt/cathook/bin/libGLEW.so.*` next to the temporary library used for `dlopen`, because the injected copy is loaded from `/tmp`.
+It stages the temporary `dlopen` copy through `/proc/<pid>/root/tmp`, so the path exists in the target process's `/tmp` even when TF2 runs in a private mount namespace.
+It also copies any bundled `/opt/cathook/bin/libGLEW.so.*` next to the temporary library, because the injected copy is loaded from `/tmp`.
 
 ## Container Build
 

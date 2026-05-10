@@ -5,6 +5,7 @@ GAME_BINARY_PATH=""
 CRASH_WATCHER_PID=""
 TAIL_PID=""
 TMP_RUNTIME_DIR=""
+TMP_RUNTIME_HOST_DIR=""
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=/dev/null
@@ -627,10 +628,13 @@ stop_log_tail() {
 }
 
 cleanup_temp_runtime() {
-    if [ -n "$TMP_RUNTIME_DIR" ] && [ -d "$TMP_RUNTIME_DIR" ]; then
+    if [ -n "$TMP_RUNTIME_HOST_DIR" ] && [ -d "$TMP_RUNTIME_HOST_DIR" ]; then
+        rm -rf "$TMP_RUNTIME_HOST_DIR"
+    elif [ -n "$TMP_RUNTIME_DIR" ] && [ -d "$TMP_RUNTIME_DIR" ]; then
         rm -rf "$TMP_RUNTIME_DIR"
     fi
     TMP_RUNTIME_DIR=""
+    TMP_RUNTIME_HOST_DIR=""
 }
 
 copy_bundled_runtime_dependencies() {
@@ -713,6 +717,37 @@ install_glew_fallback_for_binary() {
     echo "Installed missing fallback $required_library to $CATHOOK_BIN_DIR"
 }
 
+stage_temp_runtime() {
+    local target_tmp_dir="/proc/$PROCID/root/tmp"
+    local tmp_base=""
+
+    if [ ! -d "$target_tmp_dir" ]; then
+        echo "Target process /tmp is not accessible through /proc/$PROCID/root/tmp." >&2
+        exit 1
+    fi
+
+    TMP_RUNTIME_HOST_DIR=$(mktemp -d "$target_tmp_dir/.glXXXXXX")
+    tmp_base="$(basename -- "$TMP_RUNTIME_HOST_DIR")"
+    TMP_RUNTIME_DIR="/tmp/$tmp_base"
+    TMP_LIB="$TMP_RUNTIME_DIR/$CATHOOK_BINARY"
+
+    chmod 0755 "$TMP_RUNTIME_HOST_DIR"
+    cp "$LIB_PATH" "$TMP_RUNTIME_HOST_DIR/$CATHOOK_BINARY"
+    chmod 0755 "$TMP_RUNTIME_HOST_DIR/$CATHOOK_BINARY"
+    copy_bundled_runtime_dependencies "$(dirname -- "$LIB_PATH")" "$TMP_RUNTIME_HOST_DIR"
+    if [ "$(dirname -- "$LIB_PATH")" != "$CATHOOK_BIN_DIR" ]; then
+        copy_bundled_runtime_dependencies "$CATHOOK_BIN_DIR" "$TMP_RUNTIME_HOST_DIR"
+    fi
+
+    if [ ! -r "$TMP_RUNTIME_HOST_DIR/$CATHOOK_BINARY" ]; then
+        echo "Failed to stage $CATHOOK_BINARY in target-visible runtime dir $TMP_RUNTIME_HOST_DIR." >&2
+        exit 1
+    fi
+
+    echo "TMP_RUNTIME_DIR=$TMP_RUNTIME_DIR"
+    echo "TMP_LIB=$TMP_LIB"
+}
+
 unload() {
     echo -e "\nUnloading library with handle $LIB_HANDLE"
     stop_gdb_crash_watcher
@@ -779,15 +814,7 @@ if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$LIB_PATH"
 fi
 
-TMP_RUNTIME_DIR=$(mktemp -d /tmp/.glXXXXXX)
-TMP_LIB="$TMP_RUNTIME_DIR/$CATHOOK_BINARY"
-chmod 0755 "$TMP_RUNTIME_DIR"
-cp "$LIB_PATH" "$TMP_LIB"
-chmod 0755 "$TMP_LIB"
-copy_bundled_runtime_dependencies "$(dirname -- "$LIB_PATH")" "$TMP_RUNTIME_DIR"
-if [ "$(dirname -- "$LIB_PATH")" != "$CATHOOK_BIN_DIR" ]; then
-    copy_bundled_runtime_dependencies "$CATHOOK_BIN_DIR" "$TMP_RUNTIME_DIR"
-fi
+stage_temp_runtime
 
 LOAD_OUTPUT=$(sudo gdb -n --batch -ex "attach $PROCID" \
                    -ex "call ((int (*) (const char *, const char *, int)) setenv)(\"CATHOOK_ATTACH_DELAY_SECONDS\", \"$CATHOOK_ATTACH_DELAY_SECONDS\", 1)" \
