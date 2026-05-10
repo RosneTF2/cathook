@@ -1785,7 +1785,12 @@ static void draw_region_selector_panel(const char* list_id) {
 
   const float list_height = ImMax(1.0f, ImGui::GetContentRegionAvail().y - ImGui::GetStyle().ItemSpacing.y);
   ImGui::BeginChild(list_id, ImVec2(-1.0f, list_height), false, ImGuiWindowFlags_NoBackground);
+  const char* current_continent = nullptr;
   for (const auto& data_center : automation::region_selector::data_centers) {
+    if (current_continent != data_center.continent) {
+      current_continent = data_center.continent;
+      ImGui::SeparatorText(current_continent);
+    }
     bool allowed = automation::region_selector::is_region_bit_allowed(data_center.bit);
     if (cat_menu::checkbox(data_center.label, &allowed)) {
       automation::region_selector::set_region_allowed(data_center.bit, allowed);
