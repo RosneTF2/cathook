@@ -1345,13 +1345,11 @@ static void draw_aimbot_content() {
 }
 
 static void draw_crits_content();
-static void draw_backtrack_content();
 
 static void draw_combat_tab() {
   enum combat_page_id
   {
     combat_page_aimbot,
-    combat_page_backtrack,
     combat_page_crits
   };
 
@@ -1360,10 +1358,6 @@ static void draw_combat_tab() {
   cat_menu::begin_tab_strip("##combat_subtabs", cat_menu::k_subtab_strip_height, false, true, cat_menu::k_tab_strip_padding_x, false);
   if (cat_menu::subtab_button("Aimbot", combat_subtab == combat_page_aimbot)) {
     combat_subtab = combat_page_aimbot;
-  }
-  ImGui::SameLine(0.0f, 0.0f);
-  if (cat_menu::subtab_button("Backtrack", combat_subtab == combat_page_backtrack)) {
-    combat_subtab = combat_page_backtrack;
   }
   ImGui::SameLine(0.0f, 0.0f);
   if (cat_menu::subtab_button("Crits", combat_subtab == combat_page_crits)) {
@@ -1376,32 +1370,13 @@ static void draw_combat_tab() {
     case combat_page_aimbot:
       draw_aimbot_content();
       break;
-    case combat_page_backtrack:
-      draw_backtrack_content();
-      break;
     case combat_page_crits:
       draw_crits_content();
       break;
   }
 }
 
-static void draw_backtrack_content() {
-  cat_menu::begin_flow_layout("backtrack_layout", 3);
-  cat_menu::flow_panel("Backtrack", 0, 166.0f, [&]() {
-    cat_menu::checkbox("Enable", &config.backtrack.enabled);
-    cat_menu::checkbox("Aimbot support", &config.backtrack.aimbot);
-    cat_menu::slider_int("Window", &config.backtrack.window_ms, 0, 1000, "%d ms");
-  });
-  cat_menu::flow_panel("Network", 1, 166.0f, [&]() {
-    cat_menu::slider_float("Fake latency", &config.backtrack.fake_latency_ms, 0.0f, 1000.0f, "%.0f ms");
-    cat_menu::checkbox("Fake interp", &config.backtrack.fake_interp);
-  });
-  cat_menu::flow_panel("Visualizer", 2, 166.0f, [&]() {
-    cat_menu::checkbox("Visualizer", &config.backtrack.visualizer);
-    cat_menu::slider_int("Ticks", &config.backtrack.visualizer_ticks, 1, 80);
-  });
-  cat_menu::end_flow_layout();
-}
+
 
 static void draw_crits_content() {
   cat_menu::begin_flow_layout("crits_layout", 2);
@@ -2223,7 +2198,16 @@ static void draw_exploits_content() {
   };
 
   cat_menu::begin_flow_layout("exploits_layout", 3);
-  cat_menu::flow_panel("Bypasses", 0, 204.0f, [&]() {
+  cat_menu::flow_panel("Backtrack", 0, 196.0f, [&]() {
+    cat_menu::checkbox("Enable", &config.backtrack.enabled);
+    cat_menu::checkbox("Aimbot support", &config.backtrack.aimbot);
+    cat_menu::slider_int("Window", &config.backtrack.window_ms, 0, 1000, "%d ms");
+    cat_menu::slider_float("Fake latency", &config.backtrack.fake_latency_ms, 0.0f, 1000.0f, "%.0f ms");
+    cat_menu::checkbox("Fake interp", &config.backtrack.fake_interp);
+    cat_menu::checkbox("Visualizer", &config.backtrack.visualizer);
+    cat_menu::slider_int("Ticks", &config.backtrack.visualizer_ticks, 1, 80);
+  });
+  cat_menu::flow_panel("Bypasses", 1, 204.0f, [&]() {
     cat_menu::checkbox("Bypass sv_pure", &config.misc.exploits.bypasspure);
     cat_menu::checkbox("Pure bypass", &config.misc.exploits.pure_bypass);
     cat_menu::checkbox("Cheats bypass", &config.misc.exploits.cheats_bypass);
@@ -2235,7 +2219,7 @@ static void draw_exploits_content() {
       config.misc.exploits.experimental_nographic_hooks = config.misc.exploits.null_graphics;
     }
   });
-  cat_menu::flow_panel("Tickbase", 1, 224.0f, [&]() {
+  cat_menu::flow_panel("Tickbase", 2, 224.0f, [&]() {
     cat_menu::checkbox("Tickbase", &config.misc.exploits.tickbase);
     cat_menu::checkbox("Recharge", &config.misc.exploits.tickbase_recharge);
     cat_menu::checkbox("Doubletap", &config.misc.exploits.doubletap);
@@ -2252,7 +2236,7 @@ static void draw_exploits_content() {
     cat_menu::checkbox("Ping reducer", &config.misc.exploits.ping_reducer);
     cat_menu::slider_int("Ping target", &config.misc.exploits.ping_target, 1, 100);
   });
-  cat_menu::flow_panel("Anti-aim", 2, 286.0f, [&]() {
+  cat_menu::flow_panel("Anti-aim", 1, 286.0f, [&]() {
     cat_menu::checkbox("Enable", &config.misc.exploits.anti_aim);
     cat_menu::combo("Real pitch", (int*)&config.misc.exploits.anti_aim_real_pitch, anti_aim_pitch_items, IM_ARRAYSIZE(anti_aim_pitch_items));
     cat_menu::combo("Fake pitch", (int*)&config.misc.exploits.anti_aim_fake_pitch, anti_aim_pitch_items, IM_ARRAYSIZE(anti_aim_pitch_items));

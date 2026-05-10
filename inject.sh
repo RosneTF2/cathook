@@ -24,11 +24,8 @@ CATHOOK_ATTACH_DELAY_SECONDS=${CATHOOK_ATTACH_DELAY_SECONDS:-0}
 CATHOOK_USE_GDB=${CATHOOK_USE_GDB:-1}
 CATHOOK_GDB_CRASH_REPORTS=${CATHOOK_GDB_CRASH_REPORTS:-0}
 CATHOOK_GDB_KEEP_CORE=${CATHOOK_GDB_KEEP_CORE:-0}
-CATHOOK_DISCORD_REPORTS=${CATHOOK_DISCORD_REPORTS:-1}
 CATHOOK_TARGET_PID=${CATHOOK_TARGET_PID:-}
 CATHOOK_INCLUDE_BOTS=${CATHOOK_INCLUDE_BOTS:-0}
-# pls dont spam it, i need it to fix ze bugs und crashes! :(
-CATHOOK_DISCORD_WEBHOOK_URL=${CATHOOK_DISCORD_WEBHOOK_URL:-"https://discord.com/api/webhooks/1503056389554307162/EpkAdFxqjdtzzZaICG7H1vaksceGJ87cd0wo8cbjq3UFCtN0ak8UKRuTPLFDvsEtIvkU"}
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -153,50 +150,6 @@ require_gdb_injection_enabled() {
     echo "gdb injection is disabled by CATHOOK_USE_GDB=0 or --no-gdb."
     echo "Use ./preload to launch TF2 without gdb, or run sudo ./inject.sh to attach with gdb."
     exit 1
-}
-
-send_discord_report() {
-    local file_path="$1"
-    local report_name="$2"
-    local host_name=""
-
-    if ! is_enabled "$CATHOOK_DISCORD_REPORTS"; then
-        return
-    fi
-
-    if [ -z "$CATHOOK_DISCORD_WEBHOOK_URL" ]; then
-        return
-    fi
-
-    if [ ! -s "$file_path" ]; then
-        return
-    fi
-
-    if ! command -v curl >/dev/null 2>&1; then
-        echo "discord report skipped: curl is missing"
-        return
-    fi
-
-    host_name=$(hostname 2>/dev/null || printf '%s' "unknown-host")
-
-    if curl --fail --silent --show-error --max-time 60 \
-        -F "content=$report_name from $host_name at $(date --iso-8601=seconds)" \
-        -F "files[0]=@$file_path;filename=$(basename -- "$file_path")" \
-        "$CATHOOK_DISCORD_WEBHOOK_URL" >/dev/null; then
-        echo "Sent $report_name to Discord: $file_path"
-    else
-        echo "Failed to send $report_name to Discord: $file_path"
-    fi
-}
-
-send_exception_reports() {
-    local report_path=""
-
-    for report_path in "$CATHOOK_LOG_DIR"/exception*.log "$CATHOOK_ROOT"/exception*.log; do
-        if [ -f "$report_path" ]; then
-            send_discord_report "$report_path" "cathook exception report"
-        fi
-    done
 }
 
 normalize_yes_no() {
@@ -569,11 +522,6 @@ run_gdb_crash_report() {
     } >>"$log_path" 2>&1
 
     echo "Wrote gdb crash report to $log_path"
-    if [ "$has_core" = "1" ]; then
-        send_discord_report "$log_path" "cathook gdb crash report"
-    else
-        echo "Discord gdb crash report skipped: no core dump was available"
-    fi
 }
 
 start_gdb_crash_watcher() {
@@ -602,7 +550,6 @@ start_gdb_crash_watcher() {
 
         sleep 1
         run_gdb_crash_report "$pid" "$binary_path"
-        send_exception_reports
         if [ -n "$tail_pid" ]; then
             kill "$tail_pid" >/dev/null 2>&1 || true
         fi

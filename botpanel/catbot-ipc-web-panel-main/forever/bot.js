@@ -18,8 +18,6 @@ const BOT_XAUTHORITY = VISIBLE_WINDOWS ? (process.env.XAUTHORITY || path.join(pr
 const XPRA_LOG = process.env.CAT_XPRA_LOG || '/tmp/cat-catbot-xpra.log';
 const TEXTMODE_GAME = process.env.CAT_TEXTMODE_GAME !== '0';
 const GDB_CRASH_REPORTS = process.env.CAT_GDB_CRASH_REPORTS === '1' || config.gdb_crash_reports === true;
-const discord_reports = process.env.CATHOOK_DISCORD_REPORTS !== '0' && config.discord_reports !== false;
-const discord_webhook_url = process.env.CATHOOK_DISCORD_WEBHOOK_URL || config.discord_webhook_url || 'https://discord.com/api/webhooks/1503056389554307162/EpkAdFxqjdtzzZaICG7H1vaksceGJ87cd0wo8cbjq3UFCtN0ak8UKRuTPLFDvsEtIvkU';
 const steam_window_options_default = VISIBLE_WINDOWS
     ? '-noreactlogin'
     : '-silent -noreactlogin -cef-disable-gpu -nominidumps -nobreakpad -skipstreamingdrivers';
@@ -191,50 +189,6 @@ function command_succeeds(command, args) {
     }
 }
 
-function send_discord_report(file_path, report_name, log) {
-    if (!discord_reports)
-        return;
-
-    if (!discord_webhook_url)
-        return;
-
-    try {
-        if (!fs.statSync(file_path).size)
-            return;
-    } catch (error) {
-        return;
-    }
-
-    if (!command_succeeds('curl', ['--version'])) {
-        log('discord report skipped: curl is missing');
-        return;
-    }
-
-    const host_name = os.hostname() || 'unknown-host';
-    const content = `${report_name} from ${host_name} at ${new Date().toISOString()}`;
-    const curl = child_process.spawn('curl', [
-        '--fail',
-        '--silent',
-        '--show-error',
-        '--max-time',
-        '60',
-        '-F',
-        `content=${content}`,
-        '-F',
-        `files[0]=@${file_path};filename=${path.basename(file_path)}`,
-        discord_webhook_url
-    ]);
-
-    let error_text = '';
-    curl.stderr.on('data', (data) => { error_text += data.toString(); });
-    curl.on('error', (error) => log(`Failed to send ${report_name} to Discord: ${error.message}`));
-    curl.on('exit', (code) => {
-        if (code === 0)
-            log(`Sent ${report_name} to Discord: ${file_path}`);
-        else
-            log(`Failed to send ${report_name} to Discord: ${file_path}${error_text ? `: ${error_text.trim()}` : ''}`);
-    });
-}
 
 function preload_value(primary_library) {
     const extra_preload = process.env.STEAM_LD_PRELOAD || '';
@@ -2066,10 +2020,6 @@ class Bot extends EventEmitter {
         gdb.on('exit', (code, signal) => {
             this.appendGdbLog(`\n[gdb exit] code=${code} signal=${signal}\n`);
             this.gdbSnapshotRunning = false;
-            if (code === 0)
-                send_discord_report(this.gdbLogPath(), 'cathook bot gdb crash report', this.log.bind(this));
-            else if (code === 2)
-                this.log('Discord gdb crash report skipped: no core dump was available');
             this.removeGamePreloadLibrary();
         });
     }
