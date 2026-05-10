@@ -638,6 +638,10 @@ cleanup_temp_runtime() {
     TMP_RUNTIME_HOST_DIR=""
 }
 
+get_process_uid() {
+    awk '/^Uid:/ { print $2; exit }' "/proc/$PROCID/status" 2>/dev/null || true
+}
+
 copy_bundled_runtime_dependencies() {
     local source_dir="$1"
     local target_dir="$2"
@@ -766,7 +770,7 @@ report_dlopen_failure_context() {
             /*)
                 if [ "$missing_library" = "$TMP_LIB" ] || [ "$missing_library" = "$TMP_PROC_SELF_LIB" ]; then
                     echo "The target process could not see the staged cathook library path." >&2
-                    echo "This usually means the game is in a different mount namespace; the injector already retried through /proc/self/root." >&2
+                    echo "This usually means the game is in a different mount namespace or runtime sandbox; the injector already tried alternate target-visible directories." >&2
                 else
                     echo "dlopen could not open an absolute dependency path: $missing_library" >&2
                 fi
@@ -779,22 +783,60 @@ report_dlopen_failure_context() {
     fi
 }
 
-stage_temp_runtime() {
-    local target_tmp_dir="/proc/$PROCID/root/tmp"
-    local tmp_base=""
+target_can_read_path() {
+    local target_path="$1"
+    local access_output=""
 
-    if [ ! -d "$target_tmp_dir" ]; then
-        echo "Target process /tmp is not accessible through /proc/$PROCID/root/tmp." >&2
-        exit 1
+    access_output=$(sudo gdb -n --batch -ex "attach $PROCID" \
+        -ex "call ((int (*) (const char *, int)) access)(\"$target_path\", 4)" \
+        -ex "detach" 2>&1)
+
+    if printf "%s\n" "$access_output" | grep -Eq '\$[0-9]+ = 0'; then
+        return 0
     fi
 
-    TMP_RUNTIME_HOST_DIR=$(mktemp -d "$target_tmp_dir/cathook-runtime-XXXXXX")
+    if ! printf "%s\n" "$access_output" | grep -Eq '\$[0-9]+ = -1'; then
+        echo "Could not verify target read access for $target_path; trying dlopen anyway:" >&2
+        printf "%s\n" "$access_output" >&2
+        return 0
+    fi
+
+    echo "Target process cannot read $target_path:" >&2
+    printf "%s\n" "$access_output" >&2
+    return 1
+}
+
+stage_temp_runtime_at() {
+    local target_parent_dir="$1"
+    local host_parent_dir="/proc/$PROCID/root$target_parent_dir"
+    local tmp_base=""
+
+    if [ ! -d "$host_parent_dir" ]; then
+        if [ "$target_parent_dir" = "$CATHOOK_ROOT/run" ] && [ -d "/proc/$PROCID/root$CATHOOK_ROOT" ]; then
+            mkdir -p "$host_parent_dir" || return 1
+            chmod 0755 "$host_parent_dir" || return 1
+        fi
+    fi
+
+    if [ ! -d "$host_parent_dir" ]; then
+        return 1
+    fi
+
+    TMP_RUNTIME_HOST_DIR=$(mktemp -d "$host_parent_dir/cathook-runtime-XXXXXX") || return 1
     tmp_base="$(basename -- "$TMP_RUNTIME_HOST_DIR")"
-    TMP_RUNTIME_DIR="/tmp/$tmp_base"
+    TMP_RUNTIME_DIR="$target_parent_dir/$tmp_base"
     TMP_LIB="$TMP_RUNTIME_DIR/$CATHOOK_BINARY"
 
-    chmod 0755 "$TMP_RUNTIME_HOST_DIR"
-    install -m 0755 "$LIB_PATH" "$TMP_RUNTIME_HOST_DIR/$CATHOOK_BINARY"
+    if ! chmod 0755 "$TMP_RUNTIME_HOST_DIR"; then
+        cleanup_temp_runtime
+        return 1
+    fi
+
+    if ! install -m 0755 "$LIB_PATH" "$TMP_RUNTIME_HOST_DIR/$CATHOOK_BINARY"; then
+        cleanup_temp_runtime
+        return 1
+    fi
+
     copy_bundled_runtime_dependencies "$(dirname -- "$LIB_PATH")" "$TMP_RUNTIME_HOST_DIR"
     if [ "$(dirname -- "$LIB_PATH")" != "$CATHOOK_BIN_DIR" ]; then
         copy_bundled_runtime_dependencies "$CATHOOK_BIN_DIR" "$TMP_RUNTIME_HOST_DIR"
@@ -802,11 +844,85 @@ stage_temp_runtime() {
 
     if [ ! -r "$TMP_RUNTIME_HOST_DIR/$CATHOOK_BINARY" ]; then
         echo "Failed to stage $CATHOOK_BINARY in target-visible runtime dir $TMP_RUNTIME_HOST_DIR." >&2
-        exit 1
+        cleanup_temp_runtime
+        return 1
+    fi
+
+    if ! target_can_read_path "$TMP_LIB"; then
+        cleanup_temp_runtime
+        return 1
     fi
 
     echo "TMP_RUNTIME_DIR=$TMP_RUNTIME_DIR"
     echo "TMP_LIB=$TMP_LIB"
+    return 0
+}
+
+parse_lib_handle() {
+    printf "%s\n" "$1" | grep -oP '\$[0-9]+ = \(void \*\) \K0x[0-9a-f]+'
+}
+
+dlopen_missing_current_runtime() {
+    local output="$1"
+
+    printf "%s\n" "$output" | grep -Fq "$TMP_LIB: cannot open shared object file: No such file or directory" && return 0
+
+    if [ -n "$TMP_PROC_SELF_LIB" ]; then
+        printf "%s\n" "$output" | grep -Fq "$TMP_PROC_SELF_LIB: cannot open shared object file: No such file or directory" && return 0
+    fi
+
+    return 1
+}
+
+try_load_staged_runtime() {
+    LOAD_OUTPUT=$(gdb_dlopen_path "$TMP_LIB")
+    LIB_HANDLE=$(parse_lib_handle "$LOAD_OUTPUT")
+
+    if [[ "$LIB_HANDLE" = "0x0" ]] && printf "%s\n" "$LOAD_OUTPUT" | grep -q "No such file or directory"; then
+        TMP_PROC_SELF_LIB="/proc/self/root$TMP_LIB"
+        echo "dlopen could not see $TMP_LIB; retrying as $TMP_PROC_SELF_LIB"
+        LOAD_OUTPUT=$(gdb_dlopen_path "$TMP_PROC_SELF_LIB")
+        LIB_HANDLE=$(parse_lib_handle "$LOAD_OUTPUT")
+    fi
+
+    [[ -n "$LIB_HANDLE" && "$LIB_HANDLE" != "0x0" ]]
+}
+
+stage_and_load_runtime() {
+    local target_uid=""
+    local target_dir=""
+    local target_dirs=()
+
+    target_uid="$(get_process_uid)"
+    target_dirs=("$CATHOOK_ROOT/run" "/tmp" "/var/tmp")
+    if [ -n "$target_uid" ]; then
+        target_dirs+=("/run/user/$target_uid")
+    fi
+    target_dirs+=("/dev/shm")
+
+    for target_dir in "${target_dirs[@]}"; do
+        TMP_PROC_SELF_LIB=""
+        echo "Trying target runtime dir $target_dir"
+        if ! stage_temp_runtime_at "$target_dir"; then
+            continue
+        fi
+
+        if try_load_staged_runtime; then
+            return 0
+        fi
+
+        if dlopen_missing_current_runtime "$LOAD_OUTPUT"; then
+            echo "dlopen could not see staged library from $target_dir; trying another runtime dir." >&2
+            cleanup_temp_runtime
+            continue
+        fi
+
+        return 1
+    done
+
+    echo "Failed to stage and load $CATHOOK_BINARY from a target-visible runtime directory." >&2
+    echo "Tried: ${target_dirs[*]}" >&2
+    return 1
 }
 
 gdb_dlopen_path() {
@@ -887,17 +1003,7 @@ if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$LIB_PATH"
 fi
 
-stage_temp_runtime
-
-LOAD_OUTPUT=$(gdb_dlopen_path "$TMP_LIB")
-LIB_HANDLE=$(printf "%s\n" "$LOAD_OUTPUT" | grep -oP '\$[0-9]+ = \(void \*\) \K0x[0-9a-f]+')
-
-if [[ "$LIB_HANDLE" = "0x0" ]] && printf "%s\n" "$LOAD_OUTPUT" | grep -q "No such file or directory"; then
-    TMP_PROC_SELF_LIB="/proc/self/root$TMP_LIB"
-    echo "dlopen could not see $TMP_LIB; retrying as $TMP_PROC_SELF_LIB"
-    LOAD_OUTPUT=$(gdb_dlopen_path "$TMP_PROC_SELF_LIB")
-    LIB_HANDLE=$(printf "%s\n" "$LOAD_OUTPUT" | grep -oP '\$[0-9]+ = \(void \*\) \K0x[0-9a-f]+')
-fi
+stage_and_load_runtime
 
 if [ -z "$LIB_HANDLE" ]; then
     echo "Failed to load library"
