@@ -6,6 +6,7 @@ CRASH_WATCHER_PID=""
 TAIL_PID=""
 TMP_RUNTIME_DIR=""
 TMP_RUNTIME_HOST_DIR=""
+TMP_PROC_SELF_LIB=""
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=/dev/null
@@ -717,6 +718,67 @@ install_glew_fallback_for_binary() {
     echo "Installed missing fallback $required_library to $CATHOOK_BIN_DIR"
 }
 
+report_missing_shared_dependencies() {
+    local binary_path="$1"
+    local label="$2"
+    local binary_dir=""
+    local ldd_output=""
+    local missing_libraries=""
+
+    if [ ! -f "$binary_path" ]; then
+        return 0
+    fi
+
+    if ! command -v ldd >/dev/null 2>&1; then
+        echo "Warning: ldd is missing; cannot check runtime dependencies for $label." >&2
+        return 0
+    fi
+
+    binary_dir="$(dirname -- "$binary_path")"
+    ldd_output="$(LD_LIBRARY_PATH="$binary_dir:$CATHOOK_BIN_DIR:${LD_LIBRARY_PATH:-}" ldd "$binary_path" 2>&1 || true)"
+    missing_libraries="$(printf "%s\n" "$ldd_output" | awk '/=>[[:space:]]+not found/ { print $1 }' | sort -u)"
+
+    if [ -z "$missing_libraries" ]; then
+        return 0
+    fi
+
+    echo "Missing runtime dependencies for $label ($binary_path):" >&2
+    printf "%s\n" "$missing_libraries" | sed 's/^/  - /' >&2
+    echo "Install the missing libraries with ./install-deps, then run sudo ./build.sh and sudo ./inject.sh again." >&2
+    echo "Full ldd output:" >&2
+    printf "%s\n" "$ldd_output" >&2
+    return 1
+}
+
+report_dlopen_failure_context() {
+    local dlerror_line="$1"
+    local missing_library=""
+
+    report_missing_shared_dependencies "$LIB_PATH" "$CATHOOK_BINARY" || true
+
+    if [ -n "$TMP_RUNTIME_HOST_DIR" ]; then
+        report_missing_shared_dependencies "$TMP_RUNTIME_HOST_DIR/$CATHOOK_BINARY" "staged $CATHOOK_BINARY" || true
+    fi
+
+    missing_library="$(printf "%s\n" "$dlerror_line" | sed -n 's/.*"\([^"]*\): cannot open shared object file: No such file or directory".*/\1/p' | tail -n 1)"
+    if [ -n "$missing_library" ]; then
+        case "$missing_library" in
+            /*)
+                if [ "$missing_library" = "$TMP_LIB" ] || [ "$missing_library" = "$TMP_PROC_SELF_LIB" ]; then
+                    echo "The target process could not see the staged cathook library path." >&2
+                    echo "This usually means the game is in a different mount namespace; the injector already retried through /proc/self/root." >&2
+                else
+                    echo "dlopen could not open an absolute dependency path: $missing_library" >&2
+                fi
+                ;;
+            *)
+                echo "dlopen is missing dependency: $missing_library" >&2
+                echo "Install the package that provides $missing_library, or rerun ./install-deps and sudo ./build.sh." >&2
+                ;;
+        esac
+    fi
+}
+
 stage_temp_runtime() {
     local target_tmp_dir="/proc/$PROCID/root/tmp"
     local tmp_base=""
@@ -726,14 +788,13 @@ stage_temp_runtime() {
         exit 1
     fi
 
-    TMP_RUNTIME_HOST_DIR=$(mktemp -d "$target_tmp_dir/.glXXXXXX")
+    TMP_RUNTIME_HOST_DIR=$(mktemp -d "$target_tmp_dir/cathook-runtime-XXXXXX")
     tmp_base="$(basename -- "$TMP_RUNTIME_HOST_DIR")"
     TMP_RUNTIME_DIR="/tmp/$tmp_base"
     TMP_LIB="$TMP_RUNTIME_DIR/$CATHOOK_BINARY"
 
     chmod 0755 "$TMP_RUNTIME_HOST_DIR"
-    cp "$LIB_PATH" "$TMP_RUNTIME_HOST_DIR/$CATHOOK_BINARY"
-    chmod 0755 "$TMP_RUNTIME_HOST_DIR/$CATHOOK_BINARY"
+    install -m 0755 "$LIB_PATH" "$TMP_RUNTIME_HOST_DIR/$CATHOOK_BINARY"
     copy_bundled_runtime_dependencies "$(dirname -- "$LIB_PATH")" "$TMP_RUNTIME_HOST_DIR"
     if [ "$(dirname -- "$LIB_PATH")" != "$CATHOOK_BIN_DIR" ]; then
         copy_bundled_runtime_dependencies "$CATHOOK_BIN_DIR" "$TMP_RUNTIME_HOST_DIR"
@@ -746,6 +807,17 @@ stage_temp_runtime() {
 
     echo "TMP_RUNTIME_DIR=$TMP_RUNTIME_DIR"
     echo "TMP_LIB=$TMP_LIB"
+}
+
+gdb_dlopen_path() {
+    local library_path="$1"
+
+    sudo gdb -n --batch -ex "attach $PROCID" \
+        -ex "call ((int (*) (const char *, const char *, int)) setenv)(\"CATHOOK_ATTACH_DELAY_SECONDS\", \"$CATHOOK_ATTACH_DELAY_SECONDS\", 1)" \
+        -ex "call ((int (*) (const char *, const char *, int)) setenv)(\"CATHOOK_DISABLE_SDL_HOOKS\", \"${CATHOOK_DISABLE_SDL_HOOKS:-}\", 1)" \
+        -ex "call ((void * (*) (const char*, int)) dlopen)(\"$library_path\", 1)" \
+        -ex "call ((char * (*) (void)) dlerror)()" \
+        -ex "detach" 2>&1
 }
 
 unload() {
@@ -808,6 +880,7 @@ if [ ! -f "$LIB_PATH" ]; then
 fi
 
 install_glew_fallback_for_binary "$LIB_PATH"
+report_missing_shared_dependencies "$LIB_PATH" "$CATHOOK_BINARY" || exit 1
 
 echo "Using $LIB_PATH"
 if command -v sha256sum >/dev/null 2>&1; then
@@ -816,29 +889,34 @@ fi
 
 stage_temp_runtime
 
-LOAD_OUTPUT=$(sudo gdb -n --batch -ex "attach $PROCID" \
-                   -ex "call ((int (*) (const char *, const char *, int)) setenv)(\"CATHOOK_ATTACH_DELAY_SECONDS\", \"$CATHOOK_ATTACH_DELAY_SECONDS\", 1)" \
-                   -ex "call ((int (*) (const char *, const char *, int)) setenv)(\"CATHOOK_DISABLE_SDL_HOOKS\", \"${CATHOOK_DISABLE_SDL_HOOKS:-}\", 1)" \
-                   -ex "call ((void * (*) (const char*, int)) dlopen)(\"$TMP_LIB\", 1)" \
-                   -ex "detach" 2>&1)
+LOAD_OUTPUT=$(gdb_dlopen_path "$TMP_LIB")
 LIB_HANDLE=$(printf "%s\n" "$LOAD_OUTPUT" | grep -oP '\$[0-9]+ = \(void \*\) \K0x[0-9a-f]+')
 
-cleanup_temp_runtime
+if [[ "$LIB_HANDLE" = "0x0" ]] && printf "%s\n" "$LOAD_OUTPUT" | grep -q "No such file or directory"; then
+    TMP_PROC_SELF_LIB="/proc/self/root$TMP_LIB"
+    echo "dlopen could not see $TMP_LIB; retrying as $TMP_PROC_SELF_LIB"
+    LOAD_OUTPUT=$(gdb_dlopen_path "$TMP_PROC_SELF_LIB")
+    LIB_HANDLE=$(printf "%s\n" "$LOAD_OUTPUT" | grep -oP '\$[0-9]+ = \(void \*\) \K0x[0-9a-f]+')
+fi
 
 if [ -z "$LIB_HANDLE" ]; then
     echo "Failed to load library"
     echo "$LOAD_OUTPUT"
+    report_dlopen_failure_context "$LOAD_OUTPUT"
+    cleanup_temp_runtime
     exit 1
 fi
 
 if [[ "$LIB_HANDLE" = "0x0" ]]; then
     echo "Failed to load library at $LIB_HANDLE"
-    ERR=$(sudo gdb -n --batch -ex "attach $PROCID" \
-              -ex "call ((char * (*) (void)) dlerror)()" \
-              -ex "detach" 2>&1 | grep '\$1')
+    ERR=$(printf "%s\n" "$LOAD_OUTPUT" | grep -E '\$[0-9]+ = 0x[0-9a-f]+ .+' | tail -n 1)
     echo "Result from dlerror: $ERR"
+    report_dlopen_failure_context "$ERR"
+    cleanup_temp_runtime
     exit 1
 fi
+
+cleanup_temp_runtime
 
 ATTACH_OUTPUT=$(sudo gdb -n --batch -ex "attach $PROCID" \
                      -ex "call ((int (*)()) dlsym((void *) $LIB_HANDLE, \"cathook_attach\"))()" \

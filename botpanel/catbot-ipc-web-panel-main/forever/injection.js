@@ -9,6 +9,18 @@ class InjectManager {
     injectInternal(pid, callback) {
         console.log(`[INJ] Injecting into ${pid}`);
         var cp = child_process.spawn('bash', ['inject.sh', `${parseInt(pid)}`], { uid: 0, gid: 0 });
+        cp.stdout.on('data', (data) => {
+            data.toString().trimEnd().split(/\r?\n/).forEach((line) => {
+                if (line)
+                    console.log(`[INJ:${pid}] ${line}`);
+            });
+        });
+        cp.stderr.on('data', (data) => {
+            data.toString().trimEnd().split(/\r?\n/).forEach((line) => {
+                if (line)
+                    console.log(`[INJ:${pid}] ${line}`);
+            });
+        });
         var to = setTimeout(function() {
             console.log(`[INJ] Injecting into ${pid} timed out`);
             cp.removeAllListeners('exit');
@@ -18,12 +30,13 @@ class InjectManager {
         cp.on('exit', function(code, signal) {
             clearTimeout(to);
             if (callback) {
-                if (code !== null) {
+                if (code === 0) {
                     console.log(`[INJ] Injection into process ${pid} successful`);
                     callback(null);
                 } else {
-                    console.log(`[INJ] Injection into process ${pid} failed with signal ${signal}`)
-                    callback(new Error('signal ' + signal));
+                    const reason = code !== null ? `exit code ${code}` : `signal ${signal}`;
+                    console.log(`[INJ] Injection into process ${pid} failed with ${reason}`);
+                    callback(new Error(reason));
                 }
             }
         });
