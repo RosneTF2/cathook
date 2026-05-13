@@ -17,12 +17,9 @@ V  o o  V  file: src/features/combat/backtrack/backtrack.cpp
 #include <deque>
 #include <optional>
 
-#include "imgui/dearimgui.hpp"
-
 #include "features/combat/aimbot/aim_utils.hpp"
 #include "features/menu/config.hpp"
 #include "features/movement/local_prediction/local_prediction.hpp"
-#include "features/visuals/overlay_projection.hpp"
 
 #include "games/tf2/sdk/interfaces/client_state.hpp"
 #include "games/tf2/sdk/interfaces/convar_system.hpp"
@@ -270,21 +267,6 @@ constexpr std::array<int, max_points> tracked_hitbox_ids = {
   return ray_hits_record(record, point.hitbox, start_pos, end_pos);
 }
 
-[[nodiscard]] bool record_valid(const backtrack_record& record, Player* player)
-{
-  if (!record.valid ||
-      record.player != player ||
-      record.ent_index <= 0 ||
-      record.point_count <= 0 ||
-      !record.bounds.valid ||
-      global_vars == nullptr) {
-    return false;
-  }
-
-  const float age = global_vars->curtime - record.curtime;
-  return std::isfinite(age) && age >= 0.0f && age <= window_seconds();
-}
-
 [[nodiscard]] bool build_record(Player* player, backtrack_record* record)
 {
   if (player == nullptr || record == nullptr || global_vars == nullptr || player->is_dormant() || !player->is_alive()) {
@@ -305,6 +287,8 @@ constexpr std::array<int, max_points> tracked_hitbox_ids = {
   record->bounds = get_player_bounds(player, 1.5f);
   record->point_count = 0;
   record->points = {};
+  record->bone_count = 0;
+  record->bones = {};
 
   if (!std::isfinite(record->sim_time) || record->sim_time <= 0.0f || !record->bounds.valid) {
     return false;
@@ -325,6 +309,11 @@ constexpr std::array<int, max_points> tracked_hitbox_ids = {
   if (!player->setup_bones(bone_to_world, 128, 0x100, record->sim_time)) {
     return false;
   }
+
+  for (int bone_index = 0; bone_index < 128; ++bone_index) {
+    record->bones[bone_index] = bone_to_world[bone_index];
+  }
+  record->bone_count = 128;
 
   const std::uint32_t hitbox_mask = configured_hitbox_mask();
   for (const int hitbox_id : tracked_hitbox_ids) {
@@ -550,6 +539,31 @@ const player_records* records_for_player(Player* player)
   return &g_records[ent_index];
 }
 
+bool is_record_valid(const backtrack_record& record, Player* player)
+{
+  if (!record.valid ||
+      record.player != player ||
+      record.ent_index <= 0 ||
+      record.point_count <= 0 ||
+      !record.bounds.valid ||
+      global_vars == nullptr) {
+    return false;
+  }
+
+  const float age = global_vars->curtime - record.curtime;
+  return std::isfinite(age) && age >= 0.0f && age <= window_seconds();
+}
+
+bool selected_position(Vec3* position)
+{
+  if (position == nullptr || !g_selected_position) {
+    return false;
+  }
+
+  *position = *g_selected_position;
+  return true;
+}
+
 aimbot_candidate find_hitscan_candidate(Player* localplayer,
   Weapon* weapon,
   Player* player,
@@ -579,7 +593,7 @@ aimbot_candidate find_hitscan_candidate(Player* localplayer,
 
   for (int record_index = 0; record_index < history->record_count; ++record_index) {
     const backtrack_record& record = history->records[record_index];
-    if (!record_valid(record, player)) {
+    if (!is_record_valid(record, player)) {
       continue;
     }
 
@@ -638,53 +652,6 @@ aimbot_candidate find_hitscan_candidate(Player* localplayer,
   }
 
   return best_candidate;
-}
-
-void draw_visualizer_imgui()
-{
-  if (!is_enabled() ||
-      !config.backtrack.visualizer ||
-      engine == nullptr ||
-      !engine->is_in_game() ||
-      !overlay_projection::begin_frame()) {
-    return;
-  }
-
-  auto* draw_list = ImGui::GetBackgroundDrawList();
-  if (draw_list == nullptr) {
-    return;
-  }
-
-  const int max_draw_ticks = std::clamp(config.backtrack.visualizer_ticks, 1, max_records);
-  for (const player_records& history : g_records) {
-    const int draw_count = std::min(history.record_count, max_draw_ticks);
-    for (int record_index = 0; record_index < draw_count; ++record_index) {
-      const backtrack_record& record = history.records[record_index];
-      if (!record.valid || record.point_count <= 0 || !record.points[0].valid) {
-        continue;
-      }
-
-      Vec3 screen{};
-      if (!overlay_projection::world_to_screen(record.points[0].position, &screen)) {
-        continue;
-      }
-
-      const float alpha = 1.0f - (static_cast<float>(record_index) / static_cast<float>(std::max(draw_count, 1)));
-      const int alpha_byte = std::clamp(static_cast<int>(alpha * 210.0f), 35, 210);
-      const ImU32 color = IM_COL32(80, 255, 120, alpha_byte);
-      draw_list->AddRectFilled(ImVec2(screen.x - 2.0f, screen.y - 2.0f), ImVec2(screen.x + 2.0f, screen.y + 2.0f), color);
-    }
-  }
-
-  if (g_selected_position) {
-    Vec3 screen{};
-    if (overlay_projection::world_to_screen(*g_selected_position, &screen)) {
-      draw_list->AddRectFilled(
-        ImVec2(screen.x - 3.0f, screen.y - 3.0f),
-        ImVec2(screen.x + 3.0f, screen.y + 3.0f),
-        IM_COL32(255, 70, 70, 240));
-    }
-  }
 }
 
 void install_net_channel_hook()

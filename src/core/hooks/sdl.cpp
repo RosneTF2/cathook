@@ -205,7 +205,7 @@ void swap_window_hook(SDL_Window* window) {
   draw_aimbot_fov_imgui();
   draw_thirdperson_crosshair_imgui();
   draw_players_imgui();
-  backtrack::draw_visualizer_imgui();
+  draw_backtrack_visualizer_imgui();
   draw_projectile_debug_imgui();
   hitmarker::draw_imgui();
   navbot::controller().draw_imgui();

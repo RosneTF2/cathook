@@ -13,6 +13,7 @@ V  o o  V  file: src/features/visuals/esp/esp.hpp
 #define ESP_HPP
 
 void draw_players_imgui();
+void draw_backtrack_visualizer_imgui();
 void draw_projectile_debug_imgui();
 void draw_aimbot_fov_imgui();
 void draw_thirdperson_crosshair_imgui();

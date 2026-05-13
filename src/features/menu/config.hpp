@@ -131,6 +131,14 @@ struct random_crits_config {
 };
 
 struct backtrack_config {
+  enum class visualizer_style {
+    points = 0,
+    boxes,
+    projected_boxes,
+    trail,
+    pulse
+  };
+
   bool enabled = true;
   bool aimbot = true;
   float fake_latency_ms = 0.0f;
@@ -138,6 +146,7 @@ struct backtrack_config {
   int window_ms = 200;
   bool visualizer = false;
   int visualizer_ticks = 16;
+  visualizer_style visualizer_mode = visualizer_style::projected_boxes;
 };
 
 struct ipc_config {
@@ -269,6 +278,14 @@ struct Chams {
     bool local = false;
     RGBA_float local_color = {.r = 0, .g = 0.8, .b = 0.35, .a = 1};
     material_type local_material_type = material_type::shaded;
+
+    bool backtrack = false;
+    RGBA_float backtrack_color = {.r = 0.12f, .g = 0.95f, .b = 0.75f, .a = 0.42f};
+    RGBA_float backtrack_color_z = {.r = 0.95f, .g = 0.18f, .b = 0.55f, .a = 0.32f};
+    material_type backtrack_material_type = material_type::fresnel;
+    material_type backtrack_material_z_type = material_type::flat;
+    ChamFlags backtrack_flags;
+    int backtrack_ticks = 8;
   } player;
 };
 

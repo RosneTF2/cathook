@@ -231,6 +231,7 @@ void config_store::import_config(const Config& config)
     set_int("backtrack.window_ms", config.backtrack.window_ms);
     set_bool("backtrack.visualizer", config.backtrack.visualizer);
     set_int("backtrack.visualizer_ticks", config.backtrack.visualizer_ticks);
+    set_int("backtrack.visualizer_mode", static_cast<int>(config.backtrack.visualizer_mode));
 #if defined(CATHOOK_TEXTMODE) && CATHOOK_TEXTMODE
     set_bool("ipc.enabled", true);
     set_bool("ipc.auto_connect", true);
@@ -328,6 +329,13 @@ void config_store::import_config(const Config& config)
     set_bool("chams.player.local", config.chams.player.local);
     set_color("chams.player.local_color", config.chams.player.local_color);
     set_int("chams.player.local_material_type", static_cast<int>(config.chams.player.local_material_type));
+    set_bool("chams.player.backtrack", config.chams.player.backtrack);
+    set_color("chams.player.backtrack_color", config.chams.player.backtrack_color);
+    set_int("chams.player.backtrack_material_type", static_cast<int>(config.chams.player.backtrack_material_type));
+    set_color("chams.player.backtrack_color_z", config.chams.player.backtrack_color_z);
+    set_int("chams.player.backtrack_material_z_type", static_cast<int>(config.chams.player.backtrack_material_z_type));
+    set_bool("chams.player.backtrack_flags.ignore_z", config.chams.player.backtrack_flags.ignore_z);
+    set_int("chams.player.backtrack_ticks", config.chams.player.backtrack_ticks);
 
     set_bool("visuals.removals.scope", config.visuals.removals.scope);
     set_bool("visuals.removals.zoom", config.visuals.removals.zoom);
@@ -600,6 +608,10 @@ void config_store::export_config(Config& config) const
         get_int("backtrack.visualizer_ticks", config.backtrack.visualizer_ticks),
         1,
         80);
+    config.backtrack.visualizer_mode = static_cast<backtrack_config::visualizer_style>(std::clamp(
+        get_int("backtrack.visualizer_mode", static_cast<int>(config.backtrack.visualizer_mode)),
+        0,
+        4));
     config.ipc.enabled = get_bool("ipc.enabled", config.ipc.enabled);
     config.ipc.auto_connect = get_bool("ipc.auto_connect", config.ipc.auto_connect);
     config.ipc.auto_ignore_local_bots = get_bool("ipc.auto_ignore_local_bots", config.ipc.auto_ignore_local_bots);
@@ -745,6 +757,18 @@ void config_store::export_config(Config& config) const
     config.chams.player.local_color = get_color("chams.player.local_color", config.chams.player.local_color);
     config.chams.player.local_material_type = static_cast<Chams::Player::material_type>(
         get_int("chams.player.local_material_type", static_cast<int>(config.chams.player.local_material_type)));
+    config.chams.player.backtrack = get_bool("chams.player.backtrack", config.chams.player.backtrack);
+    config.chams.player.backtrack_color = get_color("chams.player.backtrack_color", config.chams.player.backtrack_color);
+    config.chams.player.backtrack_material_type = static_cast<Chams::Player::material_type>(
+        get_int("chams.player.backtrack_material_type", static_cast<int>(config.chams.player.backtrack_material_type)));
+    config.chams.player.backtrack_color_z = get_color("chams.player.backtrack_color_z", config.chams.player.backtrack_color_z);
+    config.chams.player.backtrack_material_z_type = static_cast<Chams::Player::material_type>(
+        get_int("chams.player.backtrack_material_z_type", static_cast<int>(config.chams.player.backtrack_material_z_type)));
+    config.chams.player.backtrack_flags.ignore_z = get_bool("chams.player.backtrack_flags.ignore_z", config.chams.player.backtrack_flags.ignore_z);
+    config.chams.player.backtrack_ticks = std::clamp(
+        get_int("chams.player.backtrack_ticks", config.chams.player.backtrack_ticks),
+        1,
+        80);
 
     config.visuals.removals.scope = get_bool("visuals.removals.scope", config.visuals.removals.scope);
     config.visuals.removals.zoom = get_bool("visuals.removals.zoom", config.visuals.removals.zoom);

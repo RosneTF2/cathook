@@ -1478,9 +1478,14 @@ static void draw_chams_content() {
     cat_menu::checkbox("Enemy ignore z", &config.chams.player.enemy_flags.ignore_z);
     cat_menu::checkbox("Team ignore z", &config.chams.player.team_flags.ignore_z);
   });
-  cat_menu::flow_panel("Targets", 1, 170.0f, [&]() {
+  cat_menu::flow_panel("Targets", 1, 244.0f, [&]() {
     cat_menu::checkbox("Friend ignore z", &config.chams.player.friends_flags.ignore_z);
     cat_menu::checkbox("Enemy overlay ignore z", &config.chams.player.enemy_overlay_flags.ignore_z);
+    cat_menu::checkbox("Backtrack", &config.chams.player.backtrack);
+    cat_menu::combo("Backtrack material", (int*)&config.chams.player.backtrack_material_type, mats, IM_ARRAYSIZE(mats));
+    cat_menu::combo("Backtrack z material", (int*)&config.chams.player.backtrack_material_z_type, mats, IM_ARRAYSIZE(mats));
+    cat_menu::checkbox("Backtrack ignore z", &config.chams.player.backtrack_flags.ignore_z);
+    cat_menu::slider_int("Backtrack ticks", &config.chams.player.backtrack_ticks, 1, 80);
   });
   cat_menu::flow_panel("Colors", 2, 160.0f, [&]() {
     cat_menu::color_picker("Enemy visible", config.chams.player.enemy_color.to_arr());
@@ -1496,6 +1501,8 @@ static void draw_chams_content() {
     cat_menu::combo("Enemy overlay z mat", (int*)&config.chams.player.enemy_overlay_material_z_type, mats, IM_ARRAYSIZE(mats));
     cat_menu::color_picker("Enemy overlay", config.chams.player.enemy_overlay_color.to_arr());
     cat_menu::color_picker("Enemy overlay z", config.chams.player.enemy_overlay_color_z.to_arr());
+    cat_menu::color_picker("Backtrack visible", config.chams.player.backtrack_color.to_arr());
+    cat_menu::color_picker("Backtrack occluded", config.chams.player.backtrack_color_z.to_arr());
   });
   cat_menu::end_flow_layout();
 }
@@ -2171,6 +2178,14 @@ static void draw_automation_tab() {
 }
 
 static void draw_exploits_content() {
+  static const char* backtrack_visualizer_items[] = {
+    "Points",
+    "Boxes",
+    "Projected boxes",
+    "Trail",
+    "Pulse"
+  };
+
   static const char* anti_aim_pitch_items[] = {
     "Off",
     "Up",
@@ -2205,6 +2220,7 @@ static void draw_exploits_content() {
     cat_menu::slider_float("Fake latency", &config.backtrack.fake_latency_ms, 0.0f, 1000.0f, "%.0f ms");
     cat_menu::checkbox("Fake interp", &config.backtrack.fake_interp);
     cat_menu::checkbox("Visualizer", &config.backtrack.visualizer);
+    cat_menu::combo("Visualizer style", (int*)&config.backtrack.visualizer_mode, backtrack_visualizer_items, IM_ARRAYSIZE(backtrack_visualizer_items));
     cat_menu::slider_int("Ticks", &config.backtrack.visualizer_ticks, 1, 80);
   });
   cat_menu::flow_panel("Bypasses", 1, 204.0f, [&]() {

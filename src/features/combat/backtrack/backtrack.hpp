@@ -16,6 +16,7 @@ V  o o  V  file: src/features/combat/backtrack/backtrack.hpp
 #include <climits>
 
 #include "core/types.hpp"
+#include "games/tf2/sdk/interfaces/model_info.hpp"
 
 class Player;
 class Weapon;
@@ -53,6 +54,8 @@ struct backtrack_record {
   backtrack_bounds bounds{};
   std::array<backtrack_point, max_points> points{};
   int point_count = 0;
+  std::array<matrix_3x4, 128> bones{};
+  int bone_count = 0;
 };
 
 struct player_records {
@@ -69,13 +72,13 @@ void clear();
 [[nodiscard]] float fake_latency_seconds();
 [[nodiscard]] float interpolation_time();
 [[nodiscard]] const player_records* records_for_player(Player* player);
+[[nodiscard]] bool is_record_valid(const backtrack_record& record, Player* player);
+[[nodiscard]] bool selected_position(Vec3* position);
 [[nodiscard]] aimbot_candidate find_hitscan_candidate(Player* localplayer,
   Weapon* weapon,
   Player* player,
   const Vec3& original_view_angles,
   bool preferred);
-
-void draw_visualizer_imgui();
 
 void install_net_channel_hook();
 void restore_net_channel_hook();

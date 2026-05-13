@@ -333,20 +333,24 @@ static void run_chams_pass(void* me, void* state, ModelRenderInfo* pinfo, VMatri
   render_context->set_depth_range(0, 1);
 }
 
-static void apply_chams_settings(void* me, void* state, ModelRenderInfo* pinfo, VMatrix* bone_to_world, const chams_settings& settings) {
+static void apply_chams_settings(void* me, void* state, ModelRenderInfo* pinfo, VMatrix* bone_to_world, const chams_settings& settings, bool render_original_when_material_missing = true) {
   auto* render_context = material_system->get_render_context();
   if (render_context == nullptr) {
-    draw_model_execute_original(me, state, pinfo, bone_to_world);
+    if (render_original_when_material_missing) {
+      draw_model_execute_original(me, state, pinfo, bone_to_world);
+    }
     return;
   }
 
   if (settings.material == nullptr && settings.material_z == nullptr &&
       settings.material_overlay == nullptr && settings.material_z_overlay == nullptr) {
-    draw_model_execute_original(me, state, pinfo, bone_to_world);
+    if (render_original_when_material_missing) {
+      draw_model_execute_original(me, state, pinfo, bone_to_world);
+    }
     return;
   }
 
-  run_chams_pass(me, state, pinfo, bone_to_world, render_context, settings.material, settings.material_z, settings.color, settings.color_z, settings.ignore_z, settings.wireframe, settings.wireframe_z, true);
+  run_chams_pass(me, state, pinfo, bone_to_world, render_context, settings.material, settings.material_z, settings.color, settings.color_z, settings.ignore_z, settings.wireframe, settings.wireframe_z, render_original_when_material_missing);
   run_chams_pass(me, state, pinfo, bone_to_world, render_context, settings.material_overlay, settings.material_z_overlay, settings.color_overlay, settings.color_z_overlay, settings.ignore_z_overlay, settings.wireframe_overlay, settings.wireframe_z_overlay, false);
 }
 
