@@ -317,8 +317,9 @@ void mark_peer_free()
   std::memset(&data, 0, sizeof(data));
 
   peer.free = false;
-  peer.pid = getpid();
-  peer.starttime = read_process_start_time(peer.pid);
+  peer.pid = read_host_pid();
+  // read_process_start_time needs the namespace-local PID to access /proc
+  peer.starttime = read_process_start_time(getpid());
   peer.heartbeat = now;
 
   data.textmode = textmode_build();
@@ -396,7 +397,10 @@ void try_connect()
     }
 
     injected_time = now_seconds();
-    print("[ipc] connected to catbot ipc as peer %d\n", local_peer_id);
+    print("[ipc] connected to catbot ipc as peer %d host_pid=%d ns_pid=%d\n",
+      local_peer_id,
+      static_cast<int>(ipc_state->peer_data[local_peer_id].pid),
+      static_cast<int>(getpid()));
   }
   catch (const std::exception& error)
   {

@@ -247,6 +247,32 @@ private:
   bool locked_ = false;
 };
 
+inline auto read_host_pid() -> pid_t
+{
+  std::ifstream status_file{"/proc/self/status"};
+  std::string line{};
+  while (std::getline(status_file, line))
+  {
+    if (line.compare(0, 6, "NSpid:") != 0)
+    {
+      continue;
+    }
+
+    // NSpid: <host_pid> [<ns1_pid> [<ns2_pid> ...]]
+    // The first PID after the label is the host-visible PID.
+    std::istringstream stream{line.substr(6)};
+    pid_t host_pid = 0;
+    if (stream >> host_pid && host_pid > 0)
+    {
+      return host_pid;
+    }
+
+    break;
+  }
+
+  return getpid();
+}
+
 inline auto now_seconds() -> std::time_t
 {
   return std::time(nullptr);
