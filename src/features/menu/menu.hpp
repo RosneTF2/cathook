@@ -1315,6 +1315,7 @@ static void draw_aimbot_content() {
     cat_menu::checkbox("Melee walk to target", &config.aimbot.melee_walk_to_target);
     cat_menu::multi_select_combo("Projectile hitboxes", &config.aimbot.projectile_hitboxes, projectile_hitbox_items, projectile_hitbox_bits, IM_ARRAYSIZE(projectile_hitbox_items));
     cat_menu::checkbox("Ignore friends", &config.aimbot.ignore_friends);
+    cat_menu::slider_int("Max targets", &config.aimbot.max_targets, 1, 6);
   });
   cat_menu::flow_panel("Projectile", 1, 296.0f, [&]() {
     cat_menu::combo("Projectile mode", (int*)&config.aimbot.projectile_mode, projectile_mode_items, IM_ARRAYSIZE(projectile_mode_items));

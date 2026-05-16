@@ -58,6 +58,7 @@ unsigned long last_command = 0;
 std::time_t injected_time = 0;
 std::atomic_bool ipc_enabled = true;
 std::atomic_bool auto_ignore_enabled = true;
+std::atomic_bool in_casual_queue_state = false;
 bool was_connected_to_server = false;
 std::uint32_t cached_local_account_id = 0;
 std::chrono::steady_clock::time_point next_connect_attempt{};
@@ -476,6 +477,19 @@ void update_telemetry_locked()
   }
   was_connected_to_server = connected_to_server;
 
+  const bool in_queue = in_casual_queue_state.load(std::memory_order_acquire) && !connected_to_server;
+  if (in_queue)
+  {
+    if (data.ts_queue_started == 0)
+    {
+      data.ts_queue_started = now;
+    }
+  }
+  else
+  {
+    data.ts_queue_started = 0;
+  }
+
   if (ready_for_game_telemetry)
   {
     if (const auto info = local_player_info())
@@ -547,6 +561,19 @@ void update_basic_telemetry_locked()
   data.heartbeat = now;
   data.textmode = textmode_build();
   data.ts_injected = injected_time;
+
+  const bool basic_in_queue = in_casual_queue_state.load(std::memory_order_acquire);
+  if (basic_in_queue)
+  {
+    if (data.ts_queue_started == 0)
+    {
+      data.ts_queue_started = now;
+    }
+  }
+  else
+  {
+    data.ts_queue_started = 0;
+  }
 
   if (data.friendid == 0)
   {
@@ -819,6 +846,11 @@ void set_auto_ignore_enabled(bool enabled)
   auto_ignore_enabled.store(textmode_build() || enabled, std::memory_order_release);
 }
 
+void set_in_casual_queue(bool in_queue)
+{
+  in_casual_queue_state.store(in_queue, std::memory_order_release);
+}
+
 void start()
 {
   {
@@ -849,6 +881,81 @@ void tick()
   service_ipc_locked(true, true);
 }
 
+[[nodiscard]] bool event_user_is_local(GameEvent* event, const char* key)
+{
+  if (event == nullptr || engine == nullptr)
+  {
+    return false;
+  }
+
+  const int user_id = event->get_int(key);
+  if (user_id <= 0)
+  {
+    return false;
+  }
+
+  const int player_index = engine->get_player_index_from_id(user_id);
+  return player_index > 0 && player_index == engine->get_localplayer_index();
+}
+
+void update_stats_for_event_locked(GameEvent* event, const char* event_name)
+{
+  if (!valid_local_peer_id())
+  {
+    return;
+  }
+
+  auto& data = ipc_state->peer_user_data[local_peer_id];
+
+  if (std::strcmp(event_name, "player_death") == 0)
+  {
+    const bool victim_is_local = event_user_is_local(event, "userid");
+    const bool attacker_is_local = event_user_is_local(event, "attacker");
+    const bool suicide = victim_is_local && attacker_is_local;
+
+    if (victim_is_local)
+    {
+      ++data.accumulated.deaths;
+      ++data.ingame.deaths;
+    }
+    if (attacker_is_local && !suicide)
+    {
+      ++data.accumulated.kills;
+      ++data.ingame.kills;
+      ++data.accumulated.score;
+      ++data.ingame.score;
+      if (event->get_int("customkill") == 1)
+      {
+        ++data.accumulated.headshots;
+        ++data.ingame.headshots;
+      }
+    }
+    return;
+  }
+
+  if (std::strcmp(event_name, "player_hurt") == 0)
+  {
+    const bool attacker_is_local = event_user_is_local(event, "attacker");
+    const bool victim_is_local = event_user_is_local(event, "userid");
+    if (attacker_is_local && !victim_is_local)
+    {
+      ++data.accumulated.hits;
+      ++data.ingame.hits;
+    }
+    return;
+  }
+
+  if (std::strcmp(event_name, "player_shoot") == 0 || std::strcmp(event_name, "weapon_fire") == 0)
+  {
+    if (event_user_is_local(event, "userid"))
+    {
+      ++data.accumulated.shots;
+      ++data.ingame.shots;
+    }
+    return;
+  }
+}
+
 void on_game_event(GameEvent* event)
 {
   if (event == nullptr || ipc_state == nullptr || !valid_local_peer_id())
@@ -866,8 +973,13 @@ void on_game_event(GameEvent* event)
   const auto connected_to_map = std::strcmp(event_name, "client_connected") == 0 ||
                                 std::strcmp(event_name, "game_newmap") == 0;
   const auto disconnected_from_map = std::strcmp(event_name, "client_disconnect") == 0;
+  const auto is_stat_event =
+    std::strcmp(event_name, "player_death") == 0 ||
+    std::strcmp(event_name, "player_hurt") == 0 ||
+    std::strcmp(event_name, "player_shoot") == 0 ||
+    std::strcmp(event_name, "weapon_fire") == 0;
 
-  if (!begins_connection && !connected_to_map && !disconnected_from_map)
+  if (!begins_connection && !connected_to_map && !disconnected_from_map && !is_stat_event)
   {
     return;
   }
@@ -875,6 +987,12 @@ void on_game_event(GameEvent* event)
   try_scoped_lock lock{ipc_state};
   if (!lock.locked() || !valid_local_peer_id())
   {
+    return;
+  }
+
+  if (is_stat_event)
+  {
+    update_stats_for_event_locked(event, event_name);
     return;
   }
 
@@ -886,6 +1004,8 @@ void on_game_event(GameEvent* event)
   {
     data.ts_connected = now;
     was_connected_to_server = true;
+    in_casual_queue_state.store(false, std::memory_order_release);
+    data.ts_queue_started = 0;
   }
   else if (disconnected_from_map)
   {

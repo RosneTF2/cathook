@@ -766,7 +766,9 @@ int aimbot_projectile_target_attempt_cap(size_t target_count)
     cap = std::min(cap, 4);
   }
 
-  return std::clamp(cap, 1, 5);
+  const int user_cap = std::clamp(config.aimbot.max_targets, 1, 6);
+  cap = std::min(cap, user_cap);
+  return std::clamp(cap, 1, 6);
 }
 
 bool aimbot_projectile_target_hint_better(const aimbot_projectile_target_hint& left,
@@ -1260,6 +1262,15 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
 
   if (target_player != nullptr && (target_player->is_ignored() || (target_player->is_friend() && config.aimbot.ignore_friends))) {
     target_player = nullptr;
+  }
+
+  if (target_player != nullptr && aimbot_should_skip_player(localplayer, target_player)) {
+    target_player = nullptr;
+  }
+
+  if (aimbot_preference.preferred_target != nullptr &&
+      aimbot_should_skip_player(localplayer, aimbot_preference.preferred_target)) {
+    clear_aimbot_preference();
   }
 
   aimbot_candidate best_candidate = aimbot_find_best_candidate(localplayer, weapon, user_cmd, source_view_angles);

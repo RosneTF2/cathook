@@ -21,6 +21,7 @@ namespace cat_ipc::client
 
 void set_enabled(bool enabled);
 void set_auto_ignore_enabled(bool enabled);
+void set_in_casual_queue(bool in_queue);
 void start();
 void tick();
 void on_game_event(GameEvent* event);

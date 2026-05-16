@@ -75,6 +75,7 @@ void require_connected()
   result["ts_injected"] = data.ts_injected;
   result["ts_connected"] = data.ts_connected;
   result["ts_disconnected"] = data.ts_disconnected;
+  result["ts_queue_started"] = data.ts_queue_started;
 
   result["accumulated"] = {
     {"kills", data.accumulated.kills},

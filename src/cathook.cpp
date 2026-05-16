@@ -1268,12 +1268,6 @@ bool initialize_game_runtime() {
     print("Failed to find CTFGCClientSystem SO event handler; auto casual join disabled\n");
   }
 
-  tf_gc_client_system_join_mm_match =
-    (void (*)(void*))sigscan_module("client.so", sigs::tf_gc_client_system_join_mm_match);
-  if (tf_gc_client_system_join_mm_match == nullptr) {
-    print("Failed to find CTFGCClientSystem::JoinMMMatch; auto casual match joining disabled\n");
-  }
-
   tf_gc_client_system_request_accept_match_invite =
     (void (*)(void*, std::uint64_t))sigscan_module("client.so", sigs::tf_gc_client_system_request_accept_match_invite);
   if (tf_gc_client_system_request_accept_match_invite == nullptr) {

@@ -229,6 +229,7 @@ void config_store::import_config(const Config& config)
     set_bool("aimbot.scoped_only", config.aimbot.scoped_only);
     set_bool("aimbot.wait_for_headshot", config.aimbot.wait_for_headshot);
     set_bool("aimbot.ignore_friends", config.aimbot.ignore_friends);
+    set_int("aimbot.max_targets", config.aimbot.max_targets);
     set_bool("backtrack.enabled", config.backtrack.enabled);
     set_bool("backtrack.aimbot", config.backtrack.aimbot);
     set_float("backtrack.fake_latency_ms", config.backtrack.fake_latency_ms);
@@ -616,6 +617,7 @@ void config_store::export_config(Config& config) const
     config.aimbot.scoped_only = get_bool("aimbot.scoped_only", config.aimbot.scoped_only);
     config.aimbot.wait_for_headshot = get_bool("aimbot.wait_for_headshot", config.aimbot.wait_for_headshot);
     config.aimbot.ignore_friends = get_bool("aimbot.ignore_friends", config.aimbot.ignore_friends);
+    config.aimbot.max_targets = std::clamp(get_int("aimbot.max_targets", config.aimbot.max_targets), 1, 6);
     config.backtrack.enabled = get_bool("backtrack.enabled", config.backtrack.enabled);
     config.backtrack.aimbot = get_bool("backtrack.aimbot", config.backtrack.aimbot);
     config.backtrack.fake_latency_ms = std::clamp(

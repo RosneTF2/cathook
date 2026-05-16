@@ -2028,6 +2028,7 @@ void automation_controller::run_queueing()
     cancel_queue_requested = false;
     was_disconnected = false;
     queue_loading_start_time_ = 0.0f;
+    cat_ipc::client::set_in_casual_queue(false);
     return;
   }
 
@@ -2062,6 +2063,8 @@ void automation_controller::run_queueing()
   bool in_match_queue = g_party_client_api.is_in_queue_for_match_group != nullptr &&
                         g_party_client_api.is_in_queue_for_match_group(party_client, queue_mode);
   const bool in_standby = is_in_standby_queue(party_client);
+  cat_ipc::client::set_in_casual_queue(
+    (in_match_queue || in_standby) && queue_mode == casual_match_group_default);
   if (!in_match_queue)
   {
     cancel_queue_requested = false;

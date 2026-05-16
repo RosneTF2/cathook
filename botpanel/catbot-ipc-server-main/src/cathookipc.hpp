@@ -27,6 +27,7 @@ struct user_data_s
     time_t ts_injected;
     time_t ts_connected;
     time_t ts_disconnected;
+    time_t ts_queue_started;
 
     struct accumulated_t
     {

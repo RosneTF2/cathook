@@ -124,6 +124,8 @@ struct Aim {
   bool wait_for_headshot = false;
   
   bool ignore_friends = true;
+
+  int max_targets = 6;
 };
 
 struct random_crits_config {

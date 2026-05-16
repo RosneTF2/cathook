@@ -54,6 +54,7 @@ struct user_data_s
   std::time_t ts_injected;
   std::time_t ts_connected;
   std::time_t ts_disconnected;
+  std::time_t ts_queue_started;
 
   struct accumulated_t
   {

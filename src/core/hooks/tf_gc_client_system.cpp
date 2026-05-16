@@ -19,7 +19,6 @@ namespace
 {
 
 constexpr int shared_object_created_event = 0;
-constexpr unsigned int tf_game_server_lobby_type = 2004;
 constexpr unsigned int tf_lobby_invite_type = 2008;
 constexpr int shared_object_type_vfunc_index = 2;
 constexpr int lobby_invite_id_vfunc_index = 12;
@@ -88,16 +87,6 @@ void accept_lobby_invite(void* self, void* shared_object)
   tf_gc_client_system_request_accept_match_invite(self, lobby_id);
 }
 
-void join_matchmade_lobby(void* self)
-{
-  if (tf_gc_client_system_join_mm_match == nullptr)
-  {
-    return;
-  }
-
-  tf_gc_client_system_join_mm_match(self);
-}
-
 void call_original_so_event(void* self, void* shared_object, const int event_type)
 {
   if (tf_gc_client_system_so_event_original == nullptr)
@@ -123,14 +112,4 @@ void tf_gc_client_system_so_event_hook(void* self, void* shared_object, const in
   }
 
   call_original_so_event(self, shared_object, event_type);
-
-  if (!should_auto_join)
-  {
-    return;
-  }
-
-  if (object_type == tf_game_server_lobby_type)
-  {
-    join_matchmade_lobby(self);
-  }
 }
