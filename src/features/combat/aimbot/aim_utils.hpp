@@ -1447,7 +1447,7 @@ inline bool aimbot_simple_move_sim_valid_no_visibility(Player* localplayer, Play
 inline bool aimbot_should_auto_scope(Player* localplayer, Weapon* weapon, const aimbot_candidate& candidate) {
   if (!config.aimbot.auto_scope || localplayer == nullptr || weapon == nullptr || candidate.player == nullptr) return false;
   if (localplayer->get_tf_class() != tf_class::SNIPER || !weapon->is_sniper_rifle()) return false;
-  if (aimbot_autoscope_scoped_state(localplayer) || !weapon->can_primary_attack()) return false;
+  if (aimbot_autoscope_scoped_state(localplayer) || !weapon->can_secondary_attack()) return false;
   if (!localplayer->is_on_ground()) return false;
   if (candidate.distance > config.aimbot.auto_scope_threshold) return false;
   if (!candidate.visible) {
