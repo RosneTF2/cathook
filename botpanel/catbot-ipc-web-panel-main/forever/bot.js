@@ -72,6 +72,20 @@ const STEAM_STARTUP_FATAL_PATTERNS = [
     'Error: Couldn\'t set up the Steam Runtime.',
     'LD_LIBRARY_PATH: unbound variable'
 ];
+const steam_invalid_password_patterns = [
+    /LogonFailure Invalid Password/i,
+    /ConnectionDisconnected\(.*Invalid Password/i,
+    /SteamServerConnectFailure_t Invalid Password/i,
+    /SetLoginState:.*Invalid Password/i
+];
+const steam_login_error_5_patterns = [
+    /login error\s*:?\s*5\b/i,
+    /login error\s*:?\s*e5\b/i
+];
+const steam_account_disabled_e43_patterns = [
+    /(?:login|logon|auth|account|error|eresult|result)[^\n]{0,80}\be43\b/i,
+    /\be43\b[^\n]{0,80}(?:login|logon|auth|account|error|disabled)/i
+];
 let navmesh_sync_done = false;
 let cathook_configs_ready = false;
 
@@ -84,6 +98,8 @@ const STATE = {
     RESTARTING: 6,
     STOPPING: 7,
     NO_ACCOUNT: 8,
+    INVALID_PASSWORD_E5: 9,
+    ACCOUNT_DISABLED_E43: 10,
 }
 
 function makeid(length) {
@@ -156,6 +172,18 @@ function game_startup_log_has_fatal_error(text) {
 
 function steam_startup_log_has_fatal_error(text) {
     return STEAM_STARTUP_FATAL_PATTERNS.some((pattern) => text.includes(pattern));
+}
+
+function steam_log_has_invalid_password(text) {
+    return steam_invalid_password_patterns.some((pattern) => pattern.test(text));
+}
+
+function steam_log_has_login_error_5(text) {
+    return steam_login_error_5_patterns.some((pattern) => pattern.test(text));
+}
+
+function steam_log_has_account_disabled_e43(text) {
+    return steam_account_disabled_e43_patterns.some((pattern) => pattern.test(text));
 }
 
 function steam_webhelper_browser_stalled(text) {
@@ -725,6 +753,7 @@ class Bot extends EventEmitter {
         this.steamClientInitialized = false;
         this.game_kill_generation = 0;
         this.steam_kill_generation = 0;
+        this.terminal_auth_state = 0;
 
         this.logSteam = null;
         this.logGame = null;
@@ -1333,6 +1362,80 @@ class Bot extends EventEmitter {
         return null;
     }
 
+    steam_invalid_password_log_path() {
+        for (var log_path of this.existingSteamLogPaths()) {
+            if (!['connection_log.txt', 'console_log.txt', 'steamui_login.txt'].includes(path.basename(log_path)))
+                continue;
+
+            try {
+                const log_text = fs.readFileSync(log_path, 'utf8');
+                if (steam_log_has_invalid_password(log_text))
+                    return log_path;
+            } catch (error) { }
+        }
+
+        return null;
+    }
+
+    steam_login_error_5_log_path() {
+        for (var log_path of this.existingSteamLogPaths()) {
+            if (!['connection_log.txt', 'console_log.txt', 'steamui_login.txt', 'webhelper_js.txt'].includes(path.basename(log_path)))
+                continue;
+
+            try {
+                const log_text = fs.readFileSync(log_path, 'utf8');
+                if (steam_log_has_login_error_5(log_text))
+                    return log_path;
+            } catch (error) { }
+        }
+
+        return null;
+    }
+
+    steam_account_disabled_e43_log_path() {
+        for (var log_path of this.existingSteamLogPaths()) {
+            if (!['connection_log.txt', 'console_log.txt', 'steamui_login.txt', 'webhelper_js.txt'].includes(path.basename(log_path)))
+                continue;
+
+            try {
+                const log_text = fs.readFileSync(log_path, 'utf8');
+                if (steam_log_has_account_disabled_e43(log_text))
+                    return log_path;
+            } catch (error) { }
+        }
+
+        return null;
+    }
+
+    log_single_steam_tail(prefix, log_path) {
+        const tail = log_file_tail(log_path, 12);
+        if (tail)
+            this.log(`${prefix} ${log_path}:\n${tail}`);
+    }
+
+    mark_terminal_auth_error(state, status_text, log_path) {
+        this.log(`[ERROR] Steam auth failed; marking bot ${status_text}. log=${log_path}`);
+        this.log_single_steam_tail(`Steam ${status_text} log tail`, log_path);
+        this.terminal_auth_state = state;
+        this.shouldRun = false;
+        this.shouldRestart = false;
+        this.state = state;
+        this.time_steamWorking = 0;
+        this.killGame();
+        this.killSteam();
+        this.force_kill_runtime_processes(1000);
+    }
+
+    restart_after_login_error_5(log_path) {
+        this.log(`[ERROR] Steam login error 5 detected; restarting Steam immediately. log=${log_path}`);
+        this.log_single_steam_tail('Steam login error 5 log tail', log_path);
+        this.shouldRestart = true;
+        this.time_steamWorking = 0;
+        this.killGame();
+        this.killSteam();
+        this.force_kill_runtime_processes(1000);
+    }
+
     steam_webhelper_stall_log_path() {
         for (var log_path of this.existingSteamLogPaths()) {
             if (!['steamui_html.txt', 'webhelper.txt'].includes(path.basename(log_path)))
@@ -1753,7 +1856,19 @@ class Bot extends EventEmitter {
         const steam_log_tail = log_file_tail('./logs/' + this.name + '.steam.log', 25);
         if (steam_log_tail)
             this.log(`Steam log tail:\n${steam_log_tail}`);
-        if (!this.isSteamWorking && code !== 0 && steam_startup_log_has_fatal_error(steam_log_tail)) {
+        const account_disabled_e43_log_path = this.steam_account_disabled_e43_log_path();
+        const login_error_5_log_path = this.steam_login_error_5_log_path();
+        const invalid_password_log_path = this.steam_invalid_password_log_path();
+        if (!this.isSteamWorking && account_disabled_e43_log_path) {
+            this.mark_terminal_auth_error(STATE.ACCOUNT_DISABLED_E43, 'ACCOUNT DISABLED E43', account_disabled_e43_log_path);
+        }
+        else if (!this.isSteamWorking && login_error_5_log_path) {
+            this.restart_after_login_error_5(login_error_5_log_path);
+        }
+        else if (!this.isSteamWorking && invalid_password_log_path) {
+            this.mark_terminal_auth_error(STATE.INVALID_PASSWORD_E5, 'INVALID PASSWORD E5', invalid_password_log_path);
+        }
+        else if (!this.isSteamWorking && code !== 0 && steam_startup_log_has_fatal_error(steam_log_tail)) {
             this.log('[ERROR] Steam exited during startup with a fatal runtime setup error; stopping this bot instead of relaunching in a loop.');
             this.log('Run ./install-deps and check the bot Steam runtime/logs before restarting this bot.');
             this.shouldRun = false;
@@ -1829,6 +1944,7 @@ class Bot extends EventEmitter {
     request_restart(reason) {
         this.log(`Restart requested: ${reason}`);
         this.clear_ipc_state();
+        this.terminal_auth_state = 0;
         if (this.shouldRun)
             this.shouldRestart = true;
         else
@@ -1856,6 +1972,7 @@ class Bot extends EventEmitter {
         this.steam_quick_exit_count = 0;
         this.steamwebhelper_cleanup_done = false;
         this.steamwebhelper_frozen_pid = -1;
+        this.terminal_auth_state = 0;
         this.gamePid = -1;
         this.gameStarted = 0;
         this.startTime = null;
@@ -2214,6 +2331,24 @@ class Bot extends EventEmitter {
                     if (this.isSteamWorking)
                         return;
 
+                    const account_disabled_e43_log_path = this.steam_account_disabled_e43_log_path();
+                    if (account_disabled_e43_log_path) {
+                        this.mark_terminal_auth_error(STATE.ACCOUNT_DISABLED_E43, 'ACCOUNT DISABLED E43', account_disabled_e43_log_path);
+                        return;
+                    }
+
+                    const login_error_5_log_path = this.steam_login_error_5_log_path();
+                    if (login_error_5_log_path) {
+                        this.restart_after_login_error_5(login_error_5_log_path);
+                        return;
+                    }
+
+                    const invalid_password_log_path = this.steam_invalid_password_log_path();
+                    if (invalid_password_log_path) {
+                        this.mark_terminal_auth_error(STATE.INVALID_PASSWORD_E5, 'INVALID PASSWORD E5', invalid_password_log_path);
+                        return;
+                    }
+
                     const fatal_steam_log_path = this.steamFatalStartupLogPath();
                     if (fatal_steam_log_path) {
                         this.log(`[ERROR] Steam startup fatal error detected in ${fatal_steam_log_path}; stopping this bot instead of waiting with ${steam_login_timeout_description()}.`);
@@ -2335,9 +2470,14 @@ class Bot extends EventEmitter {
                 }
                 else {
                     if (!this.account) {
-                        this.state = STATE.NO_ACCOUNT;
                         this.log(`Preparing to restart with account generation ${this.account_generation}...`);
                         this.account = accounts.get(this.botid, this.account_generation);
+                        if (!this.account) {
+                            this.state = STATE.NO_ACCOUNT;
+                            return;
+                        }
+                        if (this.state == STATE.NO_ACCOUNT)
+                            this.state = STATE.INITIALIZED;
                     }
                     const start_slots_available = module.exports.currentlyStartingGames < max_concurrent_bots();
                     const start_delay_elapsed = start_delay_allows_launch(time);
@@ -2361,9 +2501,9 @@ class Bot extends EventEmitter {
             if (this.procFirejailSteam) {
                 this.killSteam();
             }
-            this.state = STATE.STOPPING;
+            this.state = this.terminal_auth_state || STATE.STOPPING;
             if (!this.procFirejailSteam && !this.procFirejailGame) {
-                this.state = this.shouldRestart ? STATE.RESTARTING : STATE.INITIALIZED;
+                this.state = this.terminal_auth_state || (this.shouldRestart ? STATE.RESTARTING : STATE.INITIALIZED);
                 this.shouldRestart = false;
             }
             if (this.account)

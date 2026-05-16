@@ -12,7 +12,9 @@ const STATE = [
 	'RUNNING',
 	'RESTARTING',
 	'STOPPING',
-	'NO ACCOUNT'
+	'NO ACCOUNT',
+	'INVALID PASSWORD E5',
+	'ACCOUNT DISABLED E43'
 ];
 
 const classes = [
