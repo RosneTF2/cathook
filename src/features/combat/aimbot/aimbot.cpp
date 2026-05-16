@@ -1288,6 +1288,16 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
     debug_state.fov = best_candidate.fov;
     debug_state.distance = best_candidate.distance;
     debug_state.tick_count = best_candidate.tick_count;
+    if (best_candidate.player != nullptr) {
+      const resolver::resolver_debug_info resolver_info = resolver::debug_for_player(best_candidate.player);
+      debug_state.resolver_active = resolver_info.active;
+      debug_state.resolver_candidates = resolver_info.yaw_candidates;
+      debug_state.resolver_misses = resolver_info.misses;
+      debug_state.resolver_hits = resolver_info.hits;
+      debug_state.resolver_yaw = resolver_info.yaw;
+      debug_state.resolver_pitch = resolver_info.pitch;
+      debug_state.resolver_mode = static_cast<int>(resolver_info.mode);
+    }
   }
 
   if (aimbot_should_auto_unscope(localplayer, weapon, scope_candidate)) {
@@ -1469,6 +1479,13 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
     hitscan_fire_solution.ready;
   if (hitscan_fire_command) {
     user_cmd->view_angles = hitscan_fire_solution.command_angles;
+    if (best_candidate.player != nullptr) {
+      resolver::note_shot(
+        best_candidate.player,
+        best_candidate.hitbox,
+        best_candidate.simulation_time,
+        best_candidate.backtrack);
+    }
   }
 
   if (attack_ready &&

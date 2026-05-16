@@ -18,6 +18,7 @@ V  o o  V  file: src/features/combat/backtrack/backtrack.cpp
 #include <optional>
 
 #include "features/combat/aimbot/aim_utils.hpp"
+#include "features/combat/aimbot/resolver.hpp"
 #include "features/menu/config.hpp"
 #include "features/movement/local_prediction/local_prediction.hpp"
 
@@ -306,7 +307,11 @@ constexpr std::array<int, max_points> tracked_hitbox_ids = {
   }
 
   matrix_3x4 bone_to_world[128]{};
-  if (!player->setup_bones(bone_to_world, 128, 0x100, record->sim_time)) {
+  bool bones_setup = resolver::setup_record_bones(player, bone_to_world, 128, record->sim_time);
+  if (!bones_setup) {
+    bones_setup = player->setup_bones(bone_to_world, 128, 0x100, record->sim_time) != 0;
+  }
+  if (!bones_setup) {
     return false;
   }
 

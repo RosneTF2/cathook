@@ -105,6 +105,7 @@ void frame_stage_notify_hook(void* me, ClientFrameStage current_stage) {
       
       entity_cache.clear();
       entity_cache_clear_snapshot();
+      resolver::update_pending_shots();
 
       break;
     }

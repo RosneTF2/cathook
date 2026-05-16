@@ -55,9 +55,16 @@ struct aimbot_debug_state {
   int candidates_total = 0;
   int candidates_visible = 0;
   int candidates_rejected = 0;
+  int resolver_mode = 0;
+  int resolver_candidates = 0;
+  int resolver_misses = 0;
+  int resolver_hits = 0;
   float fov = FLT_MAX;
   float distance = FLT_MAX;
   float spread = 0.0f;
+  float resolver_yaw = 0.0f;
+  float resolver_pitch = 0.0f;
+  bool resolver_active = false;
   aimbot_debug_reason reason = aimbot_debug_reason::none;
 };
 
@@ -103,6 +110,25 @@ inline const char* aimbot_debug_reason_name(aimbot_debug_reason reason) {
     return "spread seed";
   case aimbot_debug_reason::attack_ready:
     return "ready";
+  }
+
+  return "unknown";
+}
+
+inline const char* aimbot_debug_resolver_mode_name(int mode) {
+  switch (mode) {
+  case 1:
+    return "moving";
+  case 2:
+    return "standing";
+  case 3:
+    return "jitter";
+  case 4:
+    return "spin";
+  case 5:
+    return "fakewalk";
+  default:
+    break;
   }
 
   return "unknown";

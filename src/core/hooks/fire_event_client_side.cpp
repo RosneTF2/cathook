@@ -20,6 +20,7 @@ V  o o  V  file: src/core/hooks/fire_event_client_side.cpp
 #include "features/automation/medic_automation/medic_automation.hpp"
 #include "features/automation/misc/misc.hpp"
 #include "features/automation/navbot/navbot_controller.hpp"
+#include "features/combat/aimbot/resolver.hpp"
 #include "features/visuals/hitmarker.hpp"
 
 #include <cfloat>
@@ -80,6 +81,7 @@ bool fire_event_client_side_hook(void* me, GameEvent* event) {
   if (event_name == "player_hurt") {
     Player* victim = entity_list->get_player_from_id(event->get_int("userid"));
     Player* attacker = entity_list->get_player_from_id(event->get_int("attacker"));
+    resolver::note_player_hurt(attacker, victim);
     hitmarker::on_player_hurt(attacker, victim, event->get_int("damageamount"), event->get_bool("crit"), event->get_int("custom") == 1);
   }
 
