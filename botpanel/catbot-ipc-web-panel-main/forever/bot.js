@@ -32,7 +32,7 @@ const CATHOOK_ATTACH_DELAY_SECONDS = Number.parseInt(process.env.CATHOOK_ATTACH_
 
 const LAUNCH_OPTIONS_STEAM = `firejail --dns=1.1.1.1 %NETWORK% --noprofile --private="%HOME%" --private-tmp --name=%JAILNAME% --env=PULSE_SERVER="unix:/tmp/pulse.sock" --env=DISPLAY=%DISPLAY% --env=XAUTHORITY=%XAUTHORITY% --env=TMPDIR=/tmp --env=TMP=/tmp --env=TEMP=/tmp --env=XDG_RUNTIME_DIR=/tmp/xdg-runtime --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% --env=LD_PRELOAD=%LD_PRELOAD% sh -lc 'mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; if command -v dbus-run-session >/dev/null 2>&1; then exec dbus-run-session -- "$@"; else exec "$@"; fi' steam-session %STEAM% ${steam_window_options} -login %LOGIN% %PASSWORD%`
 const LAUNCH_OPTIONS_STEAM_RESET = 'firejail --net=none --noprofile --private="%HOME%" --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% %STEAM% --reset'
-const LAUNCH_OPTIONS_GAME = `firejail --join=%JAILNAME% bash -c 'cd "%GAMEPATH%" && %RUNTIME_PREFIX% SteamAppId=440 SteamGameId=440 SteamOverlayGameId=440 SteamEnv=1 CATHOOK_ROOT="%CATHOOK_ROOT%" CATHOOK_ROOT_DIR="%CATHOOK_ROOT%" CATHOOK_AUTO_ATTACH=1 CATHOOK_ATTACH_DELAY_SECONDS=%CATHOOK_ATTACH_DELAY_SECONDS% CAT_BOT_ID=%BOT_ID% CAT_BOT_NAME=%BOT_NAME% CAT_STEAMID32=%STEAMID32% LD_PRELOAD=%LD_PRELOAD% DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %GAME_BINARY% -steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -noipx -nomessagebox -nominidumps -nohltv -nobreakpad -reuse -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync -insecure +clientport 27006-27014'`
+const LAUNCH_OPTIONS_GAME = `firejail --join=%JAILNAME% bash -c 'cd "%GAMEPATH%" && %RUNTIME_PREFIX% SteamAppId=440 SteamGameId=440 SteamOverlayGameId=440 SteamEnv=1 CATHOOK_ROOT="%CATHOOK_ROOT%" CATHOOK_ROOT_DIR="%CATHOOK_ROOT%" CATHOOK_AUTO_ATTACH=1 CATHOOK_ATTACH_DELAY_SECONDS=%CATHOOK_ATTACH_DELAY_SECONDS% CAT_BOT_ID="%BOT_ID%" CAT_BOT_NAME="%BOT_NAME%" CAT_STEAMID32=%STEAMID32% LD_PRELOAD=%LD_PRELOAD% DISPLAY=%DISPLAY% XAUTHORITY="%XAUTHORITY%" PULSE_SERVER="unix:/tmp/pulse.sock" %GAME_BINARY% -steam -game tf ${GAME_WINDOW_OPTIONS} -novid -nojoy -noipx -nomessagebox -nominidumps -nohltv -nobreakpad -reuse -noquicktime -precachefontchars -particles 1 -snoforceformat -softparticlesdefaultoff ${GAME_MODE_OPTIONS} -forcenovsync -insecure +clientport 27006-27014'`
 const GAME_LIBRARY_PATH = './bin:./bin/linux64:./tf/bin:./tf/bin/linux64:./platform:./platform/bin:./platform/bin/linux64:.';
 
 // Adjust these values as needed to optimize catbot performance
@@ -1911,8 +1911,8 @@ class Bot extends EventEmitter {
             .replace("%GAME_BINARY%", game_binary)
             .replace(/%CATHOOK_ROOT%/g, bash_double_quote_escape(CATHOOK_ROOT))
             .replace("%CATHOOK_ATTACH_DELAY_SECONDS%", String(CATHOOK_ATTACH_DELAY_SECONDS))
-            .replace("%BOT_ID%", String(self.botid))
-            .replace("%BOT_NAME%", self.name)
+            .replace("%BOT_ID%", bash_double_quote_escape(String(self.botid)))
+            .replace("%BOT_NAME%", bash_double_quote_escape(self.name))
             .replace("%STEAMID32%", steamid32)
             // Firejail jail name used by this users steam
             .replace("%JAILNAME%", self.name)
@@ -2387,7 +2387,7 @@ class Bot extends EventEmitter {
             return 80;
 
         if (data.name && data.name === this.name)
-            return this.procFirejailGame && data.pid ? 0 : 60;
+            return 60;
 
         return 0;
     }
