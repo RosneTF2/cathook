@@ -88,6 +88,8 @@ struct Aim {
   bool draw_fov = false;
   bool shoot_through_glass = false;
   bool spread_compensation = true;
+  bool resolver = true;
+  int resolver_max_yaws = 12;
   bool debug_overlay = false;
   float debug_overlay_x = 24.0f;
   float debug_overlay_y = 326.0f;

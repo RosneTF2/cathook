@@ -16,6 +16,7 @@ V  o o  V  file: src/features/combat/aimbot/hitscan_aim.hpp
 #include <cstdint>
 
 #include "aim_utils.hpp"
+#include "resolver.hpp"
 
 #include "features/combat/backtrack/backtrack.hpp"
 
@@ -420,7 +421,16 @@ inline aimbot_candidate hitscan_aim_find_candidate(Player* localplayer, Weapon* 
   if (localplayer == nullptr || weapon == nullptr || player == nullptr) return {};
 
   const Vec3 bullet_view_angles = hitscan_aim_bullet_angles(localplayer, original_view_angles);
-  const aimbot_point point = hitscan_aim_find_point(localplayer, weapon, player, bullet_view_angles, true);
+  aimbot_point point = resolver::find_point(
+    localplayer,
+    weapon,
+    player,
+    bullet_view_angles,
+    true,
+    aimbot_hitscan_trace_mask());
+  if (!point.valid) {
+    point = hitscan_aim_find_point(localplayer, weapon, player, bullet_view_angles, true);
+  }
   return hitscan_aim_make_candidate(localplayer, player, point, original_view_angles, point.valid);
 }
 
@@ -428,7 +438,16 @@ inline aimbot_candidate hitscan_aim_find_occluded_candidate(Player* localplayer,
   if (localplayer == nullptr || weapon == nullptr || player == nullptr) return {};
 
   const Vec3 bullet_view_angles = hitscan_aim_bullet_angles(localplayer, original_view_angles);
-  const aimbot_point point = hitscan_aim_find_point(localplayer, weapon, player, bullet_view_angles, false);
+  aimbot_point point = resolver::find_point(
+    localplayer,
+    weapon,
+    player,
+    bullet_view_angles,
+    false,
+    aimbot_hitscan_trace_mask());
+  if (!point.valid) {
+    point = hitscan_aim_find_point(localplayer, weapon, player, bullet_view_angles, false);
+  }
   aimbot_candidate candidate = hitscan_aim_make_candidate(localplayer, player, point, original_view_angles, false);
   if (candidate.entity == nullptr) {
     return candidate;
@@ -547,6 +566,13 @@ inline bool hitscan_aim_trace_candidate(Player* localplayer,
   }
 
   if (candidate.player != nullptr && candidate.hitbox >= 0 && trace_world.hitbox != candidate.hitbox) {
+    if (aimbot_hitbox_matches_mask(trace_world.hitbox, hitscan_aim_configured_hitbox_mask())) {
+      if (result != nullptr) {
+        result->hit = true;
+      }
+      return true;
+    }
+
     const bool selected_hit = hitscan_aim_trace_fallback(candidate, start_pos, end_pos);
     if (result != nullptr) {
       result->hit = selected_hit;

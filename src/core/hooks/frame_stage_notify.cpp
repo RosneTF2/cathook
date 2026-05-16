@@ -25,6 +25,7 @@ V  o o  V  file: src/core/hooks/frame_stage_notify.cpp
 
 #include "features/menu/config.hpp"
 #include "features/combat/aimbot/aimbot.hpp"
+#include "features/combat/aimbot/resolver.hpp"
 #include "features/combat/backtrack/backtrack.hpp"
 #include "features/movement/local_prediction/local_prediction.hpp"
 #include "features/automation/navbot/navbot_controller.hpp"
@@ -141,6 +142,7 @@ void frame_stage_notify_hook(void* me, ClientFrameStage current_stage) {
                 .ignored = player->is_ignored()
               });
               local_prediction_record_entity(entity);
+              resolver::record_player(player);
               backtrack::record_player(player);
             }
 	    

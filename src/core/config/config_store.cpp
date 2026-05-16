@@ -197,6 +197,8 @@ void config_store::import_config(const Config& config)
     set_bool("aimbot.draw_fov", config.aimbot.draw_fov);
     set_bool("aimbot.shoot_through_glass", config.aimbot.shoot_through_glass);
     set_bool("aimbot.spread_compensation", config.aimbot.spread_compensation);
+    set_bool("aimbot.resolver", config.aimbot.resolver);
+    set_int("aimbot.resolver_max_yaws", config.aimbot.resolver_max_yaws);
     set_bool("aimbot.debug_overlay", config.aimbot.debug_overlay);
     set_float("aimbot.debug_overlay_x", config.aimbot.debug_overlay_x);
     set_float("aimbot.debug_overlay_y", config.aimbot.debug_overlay_y);
@@ -549,6 +551,11 @@ void config_store::export_config(Config& config) const
     config.aimbot.draw_fov = get_bool("aimbot.draw_fov", config.aimbot.draw_fov);
     config.aimbot.shoot_through_glass = get_bool("aimbot.shoot_through_glass", config.aimbot.shoot_through_glass);
     config.aimbot.spread_compensation = get_bool("aimbot.spread_compensation", config.aimbot.spread_compensation);
+    config.aimbot.resolver = get_bool("aimbot.resolver", config.aimbot.resolver);
+    config.aimbot.resolver_max_yaws = std::clamp(
+        get_int("aimbot.resolver_max_yaws", config.aimbot.resolver_max_yaws),
+        4,
+        24);
     config.aimbot.debug_overlay = get_bool("aimbot.debug_overlay", config.aimbot.debug_overlay);
     config.aimbot.debug_overlay_x = get_float("aimbot.debug_overlay_x", config.aimbot.debug_overlay_x);
     config.aimbot.debug_overlay_y = get_float("aimbot.debug_overlay_y", config.aimbot.debug_overlay_y);

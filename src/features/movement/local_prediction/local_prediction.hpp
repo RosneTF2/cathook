@@ -465,10 +465,38 @@ inline float local_prediction_estimate_entity_lag(Entity* entity) {
   return std::clamp(global_vars->curtime - history.samples[0].sim_time, 0.0f, 0.6f);
 }
 
+inline float local_prediction_estimate_entity_choke_lag(Entity* entity) {
+  if (entity == nullptr || global_vars == nullptr) {
+    return 0.0f;
+  }
+
+  const int ent_index = entity->get_index();
+  if (ent_index <= 0 || ent_index >= static_cast<int>(local_prediction_entity_history.size())) {
+    return 0.0f;
+  }
+
+  const LocalPredictionEntityHistory& history = local_prediction_entity_history[ent_index];
+  if (history.sample_count <= 0) {
+    return 0.0f;
+  }
+
+  const LocalPredictionEntityHistorySample& newest = history.samples[0];
+  float choke_lag = std::max(global_vars->curtime - newest.curtime, 0.0f);
+  if (history.sample_count >= 2) {
+    const LocalPredictionEntityHistorySample& previous = history.samples[1];
+    const float sim_delta = newest.sim_time - previous.sim_time;
+    if (std::isfinite(sim_delta) && sim_delta > static_cast<float>(TICK_INTERVAL)) {
+      choke_lag = std::max(choke_lag, sim_delta - static_cast<float>(TICK_INTERVAL));
+    }
+  }
+
+  return std::clamp(choke_lag, 0.0f, 0.25f);
+}
+
 inline int local_prediction_network_lead_ticks(Entity* entity) {
   const float lead_time = local_prediction_outgoing_latency() +
     local_prediction_interp_time() +
-    (local_prediction_estimate_entity_lag(entity) * 0.5f);
+    local_prediction_estimate_entity_choke_lag(entity);
   return std::clamp(
     static_cast<int>(local_prediction_time_to_ticks(lead_time)),
     0,
