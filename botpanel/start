@@ -501,15 +501,15 @@ have_prebuilt_runtime() {
 }
 
 runtime_source_root() {
-    if have_prebuilt_runtime "$repo_root/opt/cathook"; then
-        printf '%s\n' "$repo_root/opt/cathook"
-        return 0
-    fi
-
     if [ -f "$repo_root/bin/libcathook.so" ] &&
        [ -f "$repo_root/bin/libcathooktextmode.so" ] &&
        [ -x "$ipc_server_root/bin/server" ]; then
         printf '%s\n' "$repo_root"
+        return 0
+    fi
+
+    if have_prebuilt_runtime "$repo_root/opt/cathook"; then
+        printf '%s\n' "$repo_root/opt/cathook"
         return 0
     fi
 
@@ -538,11 +538,11 @@ install_missing_dependencies() {
 }
 
 ensure_binaries() {
-    if runtime_source_root >/dev/null 2>&1; then
-        return
-    fi
-
     if [ ! -f "$repo_root/Makefile" ]; then
+        if runtime_source_root >/dev/null 2>&1; then
+            echo "No Makefile at $repo_root; using bundled prebuilt runtime."
+            return
+        fi
         echo "Missing prebuilt Cat binaries and no source Makefile was found at $repo_root." >&2
         echo "Copy vm_dist/opt/cathook next to vm_dist/botpanel, or copy it to /opt/cathook." >&2
         exit 1
@@ -556,9 +556,21 @@ ensure_binaries() {
         }
     fi
 
+    echo "Rebuilding cathook from source under $repo_root (incremental)..."
     run_make -C "$repo_root"
     run_make -C "$repo_root" TEXTMODE=1
     run_make -C "$repo_root" catbot_ipc
+
+    if [ ! -f "$repo_root/bin/libcathook.so" ] ||
+       [ ! -f "$repo_root/bin/libcathooktextmode.so" ] ||
+       [ ! -x "$ipc_server_root/bin/server" ]; then
+        if runtime_source_root >/dev/null 2>&1; then
+            echo "Warning: build did not produce all artifacts; falling back to existing runtime." >&2
+            return
+        fi
+        echo "Build did not produce required artifacts under $repo_root/bin." >&2
+        exit 1
+    fi
 }
 
 find_shared_library() {

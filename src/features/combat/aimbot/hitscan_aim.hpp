@@ -18,6 +18,7 @@ V  o o  V  file: src/features/combat/aimbot/hitscan_aim.hpp
 #include "aim_utils.hpp"
 
 #include "features/automation/nographics/nographics.hpp"
+#include "features/combat/backtrack/backtrack.hpp"
 
 struct hitscan_aim_bounds {
   bool valid = false;
@@ -89,6 +90,41 @@ inline bool hitscan_aim_world_clear(const Vec3& start_pos, const Vec3& end_pos) 
   struct trace_t trace_world{};
   engine_trace->trace_ray(&ray, hitscan_aim_world_trace_mask(), &filter, &trace_world);
   return !trace_world.all_solid && !trace_world.start_solid && trace_world.fraction >= 0.999f;
+}
+
+inline bool hitscan_aim_path_clear_to_target(Player* localplayer,
+  Player* target,
+  const Vec3& start_pos,
+  const Vec3& end_pos) {
+  if (engine_trace == nullptr ||
+      localplayer == nullptr ||
+      target == nullptr ||
+      !aimbot_vec3_is_finite(start_pos) ||
+      !aimbot_vec3_is_finite(end_pos)) {
+    return false;
+  }
+
+  if (!hitscan_aim_world_clear(start_pos, end_pos)) {
+    return false;
+  }
+
+  Vec3 start = start_pos;
+  Vec3 end = end_pos;
+  struct ray_t ray = engine_trace->init_ray(&start, &end);
+  struct trace_filter filter;
+  engine_trace->init_trace_filter(&filter, localplayer);
+
+  struct trace_t trace{};
+  engine_trace->trace_ray(&ray, hitscan_aim_world_trace_mask(), &filter, &trace);
+  if (trace.start_solid || trace.all_solid) {
+    return false;
+  }
+
+  if (trace.entity == nullptr) {
+    return trace.fraction >= 0.999f;
+  }
+
+  return trace.entity == static_cast<Entity*>(target);
 }
 
 inline hitscan_aim_bounds hitscan_aim_get_player_bounds(Player* target, float expansion = 0.0f) {
@@ -315,7 +351,7 @@ inline bool hitscan_aim_point_visible_by_fallback(Player* localplayer,
   }
 
   const Vec3 start_pos = localplayer->get_shoot_pos();
-  if (!aimbot_vec3_is_finite(start_pos) || !hitscan_aim_world_clear(start_pos, point)) {
+  if (!aimbot_vec3_is_finite(start_pos) || !hitscan_aim_path_clear_to_target(localplayer, player, start_pos, point)) {
     return false;
   }
 
@@ -347,7 +383,6 @@ inline aimbot_point hitscan_aim_find_bounds_point(Player* localplayer,
 
   const Vec3 shoot_pos = localplayer->get_shoot_pos();
   constexpr int candidate_hitboxes[] = {
-    aim_hitbox_head,
     aim_hitbox_spine_3,
     aim_hitbox_spine_2,
     aim_hitbox_spine_1,
@@ -476,7 +511,7 @@ inline aimbot_candidate hitscan_aim_make_candidate(Player* localplayer,
   candidate.distance = distance_3d(localplayer->get_origin(), player->get_origin());
   candidate.health = player->get_health();
   candidate.simulation_time = player->get_simulation_time();
-  candidate.tick_count = local_prediction_time_to_ticks(candidate.simulation_time + local_prediction_interp_time());
+  candidate.tick_count = local_prediction_time_to_ticks(candidate.simulation_time + backtrack::interpolation_time());
   candidate.command_angles = hitscan_aim_command_angles(localplayer, point.angles);
   candidate.visible = visible;
   return candidate;
@@ -519,7 +554,8 @@ inline bool hitscan_aim_textmode_candidate_visible(Player* localplayer, const ai
   }
 
   const Vec3 start_pos = localplayer->get_shoot_pos();
-  if (!aimbot_vec3_is_finite(start_pos) || !hitscan_aim_world_clear(start_pos, candidate.aim_position)) {
+  if (!aimbot_vec3_is_finite(start_pos) ||
+      !hitscan_aim_path_clear_to_target(localplayer, candidate.player, start_pos, candidate.aim_position)) {
     return false;
   }
 
@@ -626,7 +662,7 @@ inline bool hitscan_aim_trace_candidate(Player* localplayer,
   }
 
   if (trace_world.entity != candidate.entity) {
-    const bool fallback_hit = (candidate.backtrack || trace_world.entity == nullptr || nographics::should_use_aimbot_trace_fallback()) &&
+    const bool fallback_hit = (candidate.backtrack || trace_world.entity == nullptr) &&
       hitscan_aim_trace_fallback(candidate, start_pos, end_pos);
     if (result != nullptr) {
       result->hit = fallback_hit;

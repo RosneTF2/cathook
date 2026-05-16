@@ -1482,7 +1482,7 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
       (hitscan_solution || melee_solution)) {
     user_cmd->tick_count = best_candidate.tick_count > 0
       ? best_candidate.tick_count
-      : local_prediction_time_to_ticks(best_candidate.player->get_simulation_time() + local_prediction_interp_time());
+      : local_prediction_time_to_ticks(best_candidate.player->get_simulation_time() + backtrack::interpolation_time());
   }
 
   const bool release_attack_command = auto_shoot_result.release_attack;
