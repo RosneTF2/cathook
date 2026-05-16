@@ -20,6 +20,8 @@ const default_config = {
     max_concurrent_bots: 5,
     steam_boot_concurrency: 0,
     steam_boot_delay_seconds: 8,
+    per_bot_x_display: false,
+    per_bot_x_display_base: 1000,
     auto_restart_steam_if_not_logged_within: default_nonnegative_integer(process.env.CAT_STEAM_TIMEOUT_SECONDS, 300)
 };
 

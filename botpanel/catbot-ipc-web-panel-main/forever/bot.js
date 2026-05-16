@@ -30,6 +30,10 @@ const GAME_MODE_OPTIONS = TEXTMODE_GAME
 const SHARED_STEAMAPPS = '/opt/steamapps';
 const CATHOOK_ATTACH_DELAY_SECONDS = Number.parseInt(process.env.CATHOOK_ATTACH_DELAY_SECONDS || '0', 10);
 const TF2_LAUNCH_MODE = (process.env.CAT_TF2_LAUNCH_MODE || 'direct').toLowerCase();
+const PER_BOT_X_DISPLAY = process.env.CAT_PER_BOT_X_DISPLAY === '1' || config.per_bot_x_display === true;
+const PER_BOT_X_DISPLAY_BASE_VALUE = Number.parseInt(process.env.CAT_PER_BOT_X_DISPLAY_BASE || String(config.per_bot_x_display_base || '1000'), 10);
+const PER_BOT_X_DISPLAY_BASE = (Number.isSafeInteger(PER_BOT_X_DISPLAY_BASE_VALUE) && PER_BOT_X_DISPLAY_BASE_VALUE > 0) ? PER_BOT_X_DISPLAY_BASE_VALUE : 1000;
+const PER_BOT_X_SCREEN = process.env.CAT_PER_BOT_X_SCREEN || '1280x720x24';
 
 const LAUNCH_OPTIONS_STEAM = `firejail --dns=1.1.1.1 %NETWORK% --noprofile --private="%HOME%" --private-tmp --name=%JAILNAME% --env=PULSE_SERVER="unix:/tmp/pulse.sock" --env=DISPLAY=%DISPLAY% --env=XAUTHORITY=%XAUTHORITY% --env=TMPDIR=/tmp --env=TMP=/tmp --env=TEMP=/tmp --env=XDG_RUNTIME_DIR=/tmp/xdg-runtime --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% --env=LD_PRELOAD=%LD_PRELOAD% sh -lc 'mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; if command -v dbus-run-session >/dev/null 2>&1; then exec dbus-run-session -- "$@"; else exec "$@"; fi' steam-session %STEAM% ${steam_window_options} -login %LOGIN% %PASSWORD%`
 const LAUNCH_OPTIONS_STEAM_RESET = 'firejail --net=none --noprofile --private="%HOME%" --env=LD_LIBRARY_PATH=%STEAM_LD_LIBRARY_PATH% %STEAM% --reset'
@@ -245,6 +249,34 @@ function command_succeeds(command, args) {
         return true;
     } catch (error) {
         return false;
+    }
+}
+
+let xvfb_available_cached = null;
+function xvfb_available() {
+    if (xvfb_available_cached === null)
+        xvfb_available_cached = command_succeeds('which', ['Xvfb']);
+    return xvfb_available_cached;
+}
+
+function read_x_lock_pid(display_num) {
+    try {
+        const text = fs.readFileSync(`/tmp/.X${display_num}-lock`, 'utf8').trim();
+        const pid = Number.parseInt(text, 10);
+        return Number.isFinite(pid) && pid > 0 ? pid : 0;
+    } catch (error) {
+        return 0;
+    }
+}
+
+function pid_alive(pid) {
+    if (!pid)
+        return false;
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (error) {
+        return error.code === 'EPERM';
     }
 }
 
@@ -841,6 +873,9 @@ class Bot extends EventEmitter {
 
         this.procFirejailSteam = null;
         this.procFirejailGame = null;
+        this.procXvfb = null;
+        this.botDisplay = null;
+        this.botXvfbAdopted = false;
 
         // Start timestamp
         this.startTime = null;
@@ -1319,6 +1354,101 @@ class Bot extends EventEmitter {
 
         this.log(`Updated Steam TF2 launch options paths=${updated_count}`);
         return true;
+    }
+
+    using_per_bot_x_display() {
+        return !!this.procXvfb || this.botXvfbAdopted;
+    }
+
+    ensure_per_bot_x_display() {
+        if (this.using_per_bot_x_display() && this.botDisplay)
+            return true;
+        if (!PER_BOT_X_DISPLAY)
+            return false;
+        if (VISIBLE_WINDOWS) {
+            this.log('Per-bot X display disabled because CAT_VISIBLE_WINDOWS=1; using shared display.');
+            return false;
+        }
+        if (!xvfb_available()) {
+            this.log('[WARN] per_bot_x_display is enabled but Xvfb is not installed; falling back to shared display.');
+            return false;
+        }
+
+        const display_num = PER_BOT_X_DISPLAY_BASE + this.botid;
+        const lock_path = `/tmp/.X${display_num}-lock`;
+        const existing_pid = read_x_lock_pid(display_num);
+        if (existing_pid && pid_alive(existing_pid)) {
+            this.log(`Adopting existing X server on :${display_num} (pid ${existing_pid})`);
+            this.botDisplay = `:${display_num}`;
+            this.botXvfbAdopted = true;
+            return true;
+        }
+        if (existing_pid) {
+            try { fs.unlinkSync(lock_path); } catch (error) { }
+        }
+
+        try {
+            fs.mkdirSync('./logs', { recursive: true });
+            const xvfb_log_path = `./logs/${this.name}.xvfb.log`;
+            const xvfb_log = fs.createWriteStream(xvfb_log_path, { flags: 'a' });
+            this.procXvfb = child_process.spawn('Xvfb', [
+                `:${display_num}`,
+                '-screen', '0', PER_BOT_X_SCREEN,
+                '-nolisten', 'tcp',
+                '-ac',
+                '-noreset'
+            ], {
+                uid: USER.uid,
+                env: { PATH: process.env.PATH, HOME: USER.home },
+                stdio: ['ignore', 'pipe', 'pipe'],
+                detached: false
+            });
+            this.procXvfb.stdout.pipe(xvfb_log);
+            this.procXvfb.stderr.pipe(xvfb_log);
+            this.procXvfb.on('error', (error) => {
+                this.log(`[ERROR] Xvfb :${display_num} error: ${error.message}`);
+            });
+            this.procXvfb.on('exit', (code, signal) => {
+                this.log(`Xvfb :${display_num} exited code=${code} signal=${signal}`);
+                this.procXvfb = null;
+                this.botXvfbAdopted = false;
+                this.botDisplay = null;
+            });
+        } catch (error) {
+            this.log(`[ERROR] Failed to spawn Xvfb on :${display_num}: ${error.message}; falling back to shared display.`);
+            this.procXvfb = null;
+            return false;
+        }
+
+        this.botDisplay = `:${display_num}`;
+        this.log(`Spawned per-bot Xvfb on ${this.botDisplay} (pid ${this.procXvfb.pid})`);
+
+        // Brief poll so Steam doesn't race against the X socket appearing.
+        const x_socket_path = `/tmp/.X11-unix/X${display_num}`;
+        const deadline = Date.now() + 3000;
+        while (Date.now() < deadline) {
+            if (fs.existsSync(x_socket_path))
+                break;
+            try { child_process.execFileSync('sleep', ['0.05'], { stdio: 'ignore' }); } catch (error) { break; }
+        }
+        if (!fs.existsSync(x_socket_path))
+            this.log(`[WARN] X socket ${x_socket_path} did not appear within 3s; Steam may fail to connect.`);
+
+        return true;
+    }
+
+    killXvfb() {
+        if (this.procXvfb) {
+            const pid = this.procXvfb.pid;
+            try { this.procXvfb.kill('SIGTERM'); } catch (error) { }
+            setTimeout(() => {
+                try { process.kill(pid, 0); } catch (error) { return; }
+                try { process.kill(pid, 'SIGKILL'); } catch (error) { }
+            }, 2000);
+        }
+        this.procXvfb = null;
+        this.botXvfbAdopted = false;
+        this.botDisplay = null;
     }
 
     ensureVisibleXauthority() {
@@ -1833,7 +1963,12 @@ class Bot extends EventEmitter {
             self.clear_steam_webhelper_cache_before_start = false;
         }
         self.clearSteamStartupLogs();
-        const xauthority_path = self.ensureVisibleXauthority();
+        self.ensure_per_bot_x_display();
+        const using_per_bot_x = self.using_per_bot_x_display();
+        const display_value = (using_per_bot_x && self.botDisplay) ? self.botDisplay : BOT_DISPLAY;
+        const xauthority_path = using_per_bot_x ? '' : self.ensureVisibleXauthority();
+        if (using_per_bot_x)
+            self.xauthorityPath = '';
 
         var steambin = this.steamLaunchCommand();
         self.time_steam_launch_started = Date.now();
@@ -1848,7 +1983,7 @@ class Bot extends EventEmitter {
             .replace("%STEAM_LD_LIBRARY_PATH%", shell_quote(process.env.LD_LIBRARY_PATH || ''))
             .replace("%LD_PRELOAD%", shell_quote(process.env.STEAM_LD_PRELOAD || ''))
             // XOrg Display
-            .replace("%DISPLAY%", shell_quote(BOT_DISPLAY))
+            .replace("%DISPLAY%", shell_quote(display_value))
             .replace("%XAUTHORITY%", shell_quote(xauthority_path))
             // Network
             .replace("%NETWORK%", USER.SUPPORTS_FJ_NET ? `--net=${USER.interface}` : `--netns=catbotns${this.botid}`)
@@ -2049,8 +2184,8 @@ class Bot extends EventEmitter {
             // cathook
             .replace("%LD_PRELOAD%", `"${game_preload}"`)
             // XORG display
-            .replace("%DISPLAY%", BOT_DISPLAY)
-            .replace("%XAUTHORITY%", bash_double_quote_escape(self.xauthorityPath)),
+            .replace("%DISPLAY%", self.botDisplay || BOT_DISPLAY)
+            .replace("%XAUTHORITY%", bash_double_quote_escape(self.xauthorityPath || '')),
             [], self.spawnOptions);
         self.procFirejailGame.on('error', (error) => {
             self.log(`[ERROR] Failed to launch TF2/firejail: ${error.message}`);
@@ -2758,10 +2893,14 @@ class Bot extends EventEmitter {
     }
     full_stop() {
         this.stop();
+        const fully_stopped = !(this.procFirejailGame || this.procFirejailSteam);
+        // Only tear down the per-bot Xvfb once Steam/game are gone, otherwise Steam loses its display mid-shutdown.
+        if (fully_stopped)
+            this.killXvfb();
         // Delete the network namespace for this bot
         if (!USER.SUPPORTS_FJ_NET && fs.existsSync(`/var/run/netns/catbotns${this.botid}`))
             child_process.execSync(`./scripts/ns-delete ${this.botid}`)
-        return !(this.procFirejailGame || this.procFirejailSteam)
+        return fully_stopped;
     }
 }
 
