@@ -67,8 +67,7 @@ run_workspace_permission_find() {
         -path "$repo_root/botpanel/user_instances" -o \
         -path "$repo_root/botpanel/build" -o \
         -path "$repo_root/botpanel/build-debug" -o \
-        -name "node_modules" -o \
-        -name "logs" \
+        -name "node_modules" \
     \) -prune -o "$@"
 }
 
