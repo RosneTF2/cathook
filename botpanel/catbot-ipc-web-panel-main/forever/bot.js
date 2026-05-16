@@ -1867,7 +1867,7 @@ class Bot extends EventEmitter {
     spawnGame() {
         var self = this;
 
-        var filename = `/tmp/.gl${makeid(6)}`;
+        var filename = path.join(this.home, `.gl${makeid(6)}`);
         const source_library = cathook_game_library();
         fs.copyFileSync(source_library, filename);
         fs.chmodSync(filename, 0o755);
@@ -1894,7 +1894,7 @@ class Bot extends EventEmitter {
             return false;
         }
 
-        const game_preload = preload_value(filename);
+        const game_preload = preload_value(self.sandboxHomePath(filename));
         const steamid32 = self.steamid32FromSteamState() || '';
         if (!steamid32) {
             self.log(`SteamID32 for ${self.account.login} is not available from Steam state yet; delaying TF2 launch until Steam is logged in.`);

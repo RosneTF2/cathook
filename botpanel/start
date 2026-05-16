@@ -1003,7 +1003,9 @@ start_ipc_server() {
     pkill -KILL -f "$install_root/ipc/bin/server -s" 2>/dev/null || true
 
     rm -f /tmp/cat-ipc-server.pid /tmp/cat-ipc-server.log 2>/dev/null || true
-    rm -f /dev/shm/cathook_followbot_server 2>/dev/null || true
+    if [ "${CAT_IPC_RESET:-0}" = "1" ]; then
+        rm -f /dev/shm/cathook_followbot_server 2>/dev/null || true
+    fi
 
     "$install_root/ipc/bin/server" -s >/tmp/cat-ipc-server.log 2>&1 &
     echo "$!" >/tmp/cat-ipc-server.pid
