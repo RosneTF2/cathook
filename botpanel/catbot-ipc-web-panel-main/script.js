@@ -43,6 +43,7 @@ const status = {
 }
 
 var last_count = 0;
+var refresh_in_progress = false;
 
 function updateData() {
 	request('api/state', function(error, r, b) {
@@ -421,19 +422,30 @@ function runCommand() {
 }
 
 function refreshComplete() {
-	$("#clients tr").slice(1).remove();
+	if (refresh_in_progress)
+		return;
+
+	refresh_in_progress = true;
 	request.get({
 		url: 'api/list'
 	}, function(e, r, b) {
-		if (e) {
+		refresh_in_progress = false;
+		if (request_failed(e, r)) {
 			console.log(e, b);
 			status.error('Error refreshing the list!');
 			return;
 		}
+
 		var count = 0;
-		var b = JSON.parse(b);
-		console.log(b);
-		for (var i in b.bots) {
+		var data = parse_json_body(b);
+		if (!data || !data.bots) {
+			status.error('Error parsing bot list!');
+			return;
+		}
+
+		console.log(data);
+		$("#clients tr").slice(1).remove();
+		for (var i in data.bots) {
 			count++;
 			addClientRow(i)
 		}
