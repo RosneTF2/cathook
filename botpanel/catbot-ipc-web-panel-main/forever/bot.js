@@ -22,7 +22,8 @@ const steam_window_options_default = VISIBLE_WINDOWS
     ? '-noreactlogin'
     : '-silent -noreactlogin -cef-disable-gpu -nominidumps -nobreakpad -skipstreamingdrivers';
 const steam_window_options = process.env.CAT_STEAM_WINDOW_OPTIONS || steam_window_options_default;
-const GAME_WINDOW_OPTIONS = VISIBLE_WINDOWS ? '-gl -sw -w 1280 -h 720' : '-gl -silent -sw -w 1 -h 480';
+const game_window_options_default = VISIBLE_WINDOWS ? '-gl -sw -w 1280 -h 720' : '-gl -silent -sw -w 640 -h 480';
+const GAME_WINDOW_OPTIONS = process.env.CAT_GAME_WINDOW_OPTIONS || game_window_options_default;
 const GAME_MODE_OPTIONS = TEXTMODE_GAME
     ? '-nomouse -wavonly'
     : '';
@@ -41,8 +42,9 @@ const STEAM_CLIENT_INITIALIZED_PATTERNS = [
     'Caching cursor image',
     'reaping pid:'
 ];
-const STEAM_CLIENT_INITIALIZED_GAME_DELAY_SECONDS_VALUE = Number.parseInt(process.env.CAT_STEAM_CLIENT_INITIALIZED_GAME_DELAY_SECONDS || '10', 10);
-const steam_client_initialized_game_delay = (Number.isFinite(STEAM_CLIENT_INITIALIZED_GAME_DELAY_SECONDS_VALUE) ? Math.max(0, STEAM_CLIENT_INITIALIZED_GAME_DELAY_SECONDS_VALUE) : 10) * 1000;
+const steam_client_initialized_game_delay_default_seconds = 30;
+const STEAM_CLIENT_INITIALIZED_GAME_DELAY_SECONDS_VALUE = Number.parseInt(process.env.CAT_STEAM_CLIENT_INITIALIZED_GAME_DELAY_SECONDS || String(steam_client_initialized_game_delay_default_seconds), 10);
+const steam_client_initialized_game_delay = (Number.isFinite(STEAM_CLIENT_INITIALIZED_GAME_DELAY_SECONDS_VALUE) ? Math.max(0, STEAM_CLIENT_INITIALIZED_GAME_DELAY_SECONDS_VALUE) : steam_client_initialized_game_delay_default_seconds) * 1000;
 // How long to wait for the TF2 process to be created by firejail
 const TIMEOUT_START_GAME = 10000;
 // Timeout for cathook to connect to the IPC server once injected
@@ -51,8 +53,9 @@ const ipc_heartbeat_stale_timeout = Number.parseInt(process.env.CAT_IPC_STALE_SE
 const runtime_kill_grace_time = Number.parseInt(process.env.CAT_RUNTIME_KILL_GRACE_SECONDS || '8', 10) * 1000;
 // Time to wait for Steam to log in is configured in ch-settings.json. 0 disables it.
 const TIMEOUT_STEAM_ASSUME_READY = Number.parseInt(process.env.CAT_STEAM_READY_SECONDS || '0', 10) * 1000;
-const STEAM_LOGGED_IN_GAME_DELAY_SECONDS_VALUE = Number.parseInt(process.env.CAT_STEAM_LOGGED_IN_GAME_DELAY_SECONDS || '10', 10);
-const steam_logged_in_game_delay = (Number.isFinite(STEAM_LOGGED_IN_GAME_DELAY_SECONDS_VALUE) ? Math.max(0, STEAM_LOGGED_IN_GAME_DELAY_SECONDS_VALUE) : 10) * 1000;
+const steam_logged_in_game_delay_default_seconds = 30;
+const STEAM_LOGGED_IN_GAME_DELAY_SECONDS_VALUE = Number.parseInt(process.env.CAT_STEAM_LOGGED_IN_GAME_DELAY_SECONDS || String(steam_logged_in_game_delay_default_seconds), 10);
+const steam_logged_in_game_delay = (Number.isFinite(STEAM_LOGGED_IN_GAME_DELAY_SECONDS_VALUE) ? Math.max(0, STEAM_LOGGED_IN_GAME_DELAY_SECONDS_VALUE) : steam_logged_in_game_delay_default_seconds) * 1000;
 const STEAMWEBHELPER_CLEANUP_ENABLED = process.env.CAT_STEAMWEBHELPER_CLEANUP === '1' || config.steamwebhelper_cleanup === true;
 const STEAMWEBHELPER_CLEANUP_DELAY_SECONDS_VALUE = Number.parseInt(process.env.CAT_STEAMWEBHELPER_CLEANUP_SECONDS || '10', 10);
 const STEAMWEBHELPER_CLEANUP_DELAY = (Number.isFinite(STEAMWEBHELPER_CLEANUP_DELAY_SECONDS_VALUE) ? Math.max(0, STEAMWEBHELPER_CLEANUP_DELAY_SECONDS_VALUE) : 10) * 1000;

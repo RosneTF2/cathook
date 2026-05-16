@@ -60,6 +60,7 @@ V  o o  V  file: src/cathook.cpp
 #include "games/tf2/sdk/interfaces/steam_client.hpp"
 #include "games/tf2/sdk/interfaces/steam_friends.hpp"
 #include "games/tf2/sdk/interfaces/steam_networking_utils.hpp"
+#include "games/tf2/sdk/interfaces/steam_runtime.hpp"
 #include "games/tf2/sdk/interfaces/input.hpp"
 #include "games/tf2/sdk/interfaces/attribute_manager.hpp"
 #include "games/tf2/sdk/interfaces/global_vars.hpp"
@@ -158,6 +159,30 @@ constexpr int steam_networking_utils_get_direct_ping_to_pop_index = 9;
 namespace
 {
 
+bool steam_api_ready_for_interfaces()
+{
+  using steam_api_is_steam_running_fn = bool (*)();
+  using steam_api_get_handle_fn = int (*)();
+
+  steam_api_is_steam_running_fn is_steam_running =
+    steam_runtime::resolve_loaded_symbol<steam_api_is_steam_running_fn>("SteamAPI_IsSteamRunning");
+  if (is_steam_running != nullptr && !is_steam_running())
+  {
+    return false;
+  }
+
+  steam_api_get_handle_fn get_steam_user =
+    steam_runtime::resolve_loaded_symbol<steam_api_get_handle_fn>("SteamAPI_GetHSteamUser");
+  steam_api_get_handle_fn get_steam_pipe =
+    steam_runtime::resolve_loaded_symbol<steam_api_get_handle_fn>("SteamAPI_GetHSteamPipe");
+  if (get_steam_user != nullptr && get_steam_pipe != nullptr)
+  {
+    return get_steam_user() != 0 && get_steam_pipe() != 0;
+  }
+
+  return is_steam_running != nullptr;
+}
+
 steam_networking_utils* resolve_steam_networking_utils()
 {
   using steam_networking_utils_factory_fn = steam_networking_utils* (*)();
@@ -221,6 +246,17 @@ bool install_steam_networking_utils_hooks()
       steam_networking_utils_get_direct_ping_to_pop_original != nullptr)
   {
     return true;
+  }
+
+  if (!steam_api_ready_for_interfaces())
+  {
+    static bool warned_not_ready = false;
+    if (!warned_not_ready)
+    {
+      print("SteamAPI is not ready; deferring SteamNetworkingUtils hooks\n");
+      warned_not_ready = true;
+    }
+    return false;
   }
 
   if (steam_networking_utils_interface == nullptr)
