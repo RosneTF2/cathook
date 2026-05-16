@@ -89,18 +89,23 @@ void print_status(cat_ipc::shared_state* state)
 int main(int argc, char** argv)
 {
   auto silent = false;
+  auto reset_existing = false;
   for (auto index = 1; index < argc; ++index)
   {
     if (std::string_view{argv[index]} == "-s")
     {
       silent = true;
     }
+    else if (std::string_view{argv[index]} == "--reset")
+    {
+      reset_existing = true;
+    }
   }
 
   std::signal(SIGINT, signal_handler);
   std::signal(SIGTERM, signal_handler);
 
-  auto memory = cat_ipc::shared_memory::create_server(true);
+  auto memory = cat_ipc::shared_memory::open_or_create_server(reset_existing);
   auto* state = memory.state();
 
   while (running.load())
@@ -113,6 +118,5 @@ int main(int argc, char** argv)
     std::this_thread::sleep_for(std::chrono::seconds(2));
   }
 
-  memory.unlink_if_owner();
   return 0;
 }

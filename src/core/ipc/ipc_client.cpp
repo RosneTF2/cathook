@@ -436,6 +436,17 @@ void update_peer_count_locked()
   ipc_state->peer_count = count;
 }
 
+[[nodiscard]] auto local_peer_registered_locked() -> bool
+{
+  if (ipc_state == nullptr || !valid_local_peer_id())
+  {
+    return false;
+  }
+
+  const auto& peer = ipc_state->peer_data[local_peer_id];
+  return !peer.free && peer.pid == read_host_pid();
+}
+
 void update_telemetry_locked()
 {
   if (ipc_state == nullptr || !valid_local_peer_id())
@@ -705,30 +716,49 @@ void service_ipc_locked(bool full_telemetry, bool process_commands)
     return;
   }
 
+  auto needs_reconnect = false;
+  {
+    try_scoped_lock lock{ipc_state};
+    if (lock.locked())
+    {
+      if (!local_peer_registered_locked())
+      {
+        needs_reconnect = true;
+      }
+      else
+      {
+        update_peer_count_locked();
+        refresh_local_ipc_friends_locked();
+        if (full_telemetry)
+        {
+          update_telemetry_locked();
+        }
+        else
+        {
+          update_basic_telemetry_locked();
+        }
+      }
+    }
+  }
+
+  if (needs_reconnect)
+  {
+    print("[ipc] local peer slot was reset, reconnecting\n");
+    ipc_memory.close();
+    ipc_state = nullptr;
+    local_peer_id = -1;
+    last_command = 0;
+    clear_local_ipc_friends();
+    try_connect();
+    return;
+  }
+
   std::vector<pending_command> commands_to_process{};
   if (process_commands)
   {
     collect_commands(commands_to_process);
   }
   prepend_deferred_commands(commands_to_process);
-
-  {
-    try_scoped_lock lock{ipc_state};
-    if (lock.locked())
-    {
-      update_peer_count_locked();
-      refresh_local_ipc_friends_locked();
-      if (full_telemetry)
-      {
-        update_telemetry_locked();
-      }
-      else
-      {
-        update_basic_telemetry_locked();
-      }
-    }
-  }
-
   process_collected_commands(commands_to_process);
 }
 

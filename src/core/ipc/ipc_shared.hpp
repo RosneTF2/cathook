@@ -87,6 +87,23 @@ public:
     return memory;
   }
 
+  [[nodiscard]] static auto open_or_create_server(bool reset_existing) -> shared_memory
+  {
+    if (reset_existing)
+    {
+      return create_server(true);
+    }
+
+    try
+    {
+      return open_client();
+    }
+    catch (const std::exception&)
+    {
+      return create_server(false);
+    }
+  }
+
   [[nodiscard]] static auto open_client() -> shared_memory
   {
     auto memory = shared_memory{};
