@@ -599,6 +599,17 @@ inline void command_cancel_queue_callback(const command_args&)
   print("[cat_cancelqueue] requested casual matchmaking queue cancel\n");
 }
 
+inline void command_abandon_callback(const command_args&)
+{
+  if (!automation::abandon_current_match())
+  {
+    print("[cat_abandon] matchmaking client unavailable or no active match\n");
+    return;
+  }
+
+  print("[cat_abandon] requested match abandon\n");
+}
+
 inline void command_criteria_callback(const command_args&)
 {
   if (!automation::reload_casual_criteria())
@@ -892,7 +903,7 @@ inline void register_commands() {
     return;
   }
 
-  registered_commands().reserve(28);
+  registered_commands().reserve(30);
   add_command("cat_detach", command_detach_callback, "Detach cathook from TF2");
   add_command("cat_exec", command_cat_exec_callback, "Execute tf/cfg/cat_autoexec.cfg");
   add_command("cat_exec_textmode", command_cat_exec_textmode_callback, "Execute tf/cfg/cat_autoexec_textmode.cfg");
@@ -913,6 +924,7 @@ inline void register_commands() {
   add_command("cat_rent_item", command_autoitem_rent_callback, "Legacy alias: request an item preview/rental by item definition ID");
   add_command("cat_queue", command_queue_callback, "Start casual matchmaking queue");
   add_command("cat_cancelqueue", command_cancel_queue_callback, "Cancel casual matchmaking queue");
+  add_command("cat_abandon", command_abandon_callback, "Abandon the current matchmaking match");
   add_command("cat_criteria", command_criteria_callback, "Reload saved casual matchmaking criteria");
   add_command("cat_commands", command_commands_callback, "Print registered Cat commands");
   add_command("cat_playerlist_load", command_playerlist_load_callback, "Load the persistent player list");

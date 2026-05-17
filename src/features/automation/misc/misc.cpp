@@ -654,26 +654,6 @@ bool is_in_standby_queue(void* party_client)
   return g_party_client_api.is_in_standby_queue(party_client);
 }
 
-bool abandon_current_match()
-{
-  initialize_party_client_api();
-
-  if (g_party_client_api.get_matchmaking_client == nullptr ||
-      g_party_client_api.abandon_current_match == nullptr)
-  {
-    return false;
-  }
-
-  auto* matchmaking_client = g_party_client_api.get_matchmaking_client();
-  if (matchmaking_client == nullptr)
-  {
-    return false;
-  }
-
-  g_party_client_api.abandon_current_match(matchmaking_client);
-  return true;
-}
-
 bool request_match_queue(void* party_client, unsigned int queue_mode)
 {
   initialize_party_client_api();
@@ -1044,6 +1024,26 @@ bool cancel_casual_queue()
   }
 
   g_party_client_api.request_leave_for_match(party_client, casual_match_group_default);
+  return true;
+}
+
+bool abandon_current_match()
+{
+  initialize_party_client_api();
+
+  if (g_party_client_api.get_matchmaking_client == nullptr ||
+      g_party_client_api.abandon_current_match == nullptr)
+  {
+    return false;
+  }
+
+  auto* matchmaking_client = g_party_client_api.get_matchmaking_client();
+  if (matchmaking_client == nullptr)
+  {
+    return false;
+  }
+
+  g_party_client_api.abandon_current_match(matchmaking_client);
   return true;
 }
 

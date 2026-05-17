@@ -70,6 +70,8 @@ constexpr std::uintptr_t crafting_panel_recipe_offset = 0x450;
 constexpr std::size_t crafting_panel_size = 0x51C;
 constexpr std::uintptr_t crafting_ui_skip_patch_offset = 0x219;
 constexpr std::uint8_t crafting_ui_skip_patch[] = { 0xE9, 0x84, 0x00, 0x00, 0x00 };
+constexpr std::uintptr_t preview_emsg_patch_offset = 0x107;
+constexpr std::uint8_t preview_emsg_grant_byte = 0xA7;
 constexpr int inventory_manager_get_local_inventory_index = 24;
 constexpr int inventory_manager_show_items_picked_up_index = 35;
 constexpr std::uintptr_t inventory_manager_schema_offset = 0x60;
@@ -988,7 +990,14 @@ bool rent_item(const int item_def_id)
   }
 
   debug_log("requesting preview item def %d\n", item_def_id);
+  auto* emsg_target = reinterpret_cast<std::uint8_t*>(reinterpret_cast<void*>(g_inventory_api.do_preview_item)) + preview_emsg_patch_offset;
+  byte_patch emsg_patch(emsg_target, { preview_emsg_grant_byte });
+  if (!emsg_patch.apply())
+  {
+    return false;
+  }
   g_inventory_api.do_preview_item(nullptr, item_def_id);
+  emsg_patch.restore();
   queue_pending_pickup_ack();
   return true;
 }
