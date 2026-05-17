@@ -744,6 +744,11 @@ void service_ipc_locked(bool full_telemetry, bool process_commands)
   }
 
   auto needs_reconnect = false;
+  if (!ipc_memory.owns_valid_state() || !ipc_memory.maps_current_object())
+  {
+    needs_reconnect = true;
+  }
+  if (!needs_reconnect)
   {
     try_scoped_lock lock{ipc_state};
     if (lock.locked())

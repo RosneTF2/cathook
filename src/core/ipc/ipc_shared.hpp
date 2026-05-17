@@ -156,6 +156,29 @@ public:
     return state_ != nullptr && state_->global_data.magic_number == cathook_magic_number;
   }
 
+  [[nodiscard]] bool maps_current_object() const
+  {
+    if (fd_ < 0 || state_ == nullptr)
+    {
+      return false;
+    }
+
+    struct stat mapped_stat {};
+    if (fstat(fd_, &mapped_stat) != 0)
+    {
+      return false;
+    }
+
+    struct stat named_stat {};
+    const auto named_path = std::string{"/dev/shm"} + shared_memory_name;
+    if (stat(named_path.c_str(), &named_stat) != 0)
+    {
+      return false;
+    }
+
+    return mapped_stat.st_dev == named_stat.st_dev && mapped_stat.st_ino == named_stat.st_ino;
+  }
+
 private:
   void map()
   {
