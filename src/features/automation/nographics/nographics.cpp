@@ -67,6 +67,7 @@ using read_file_fn = bool (*)(void*, const char*, const char*, void*, int, int, 
 using texture_load_bits_fn = void* (*)(void*, const char*, char**);
 using get_scratch_vtf_texture_fn = void* (*)(void*);
 using handle_file_load_failed_texture_fn = void* (*)(void*, void*);
+using bone_setup_attachment_matrices_fn = std::int64_t (*)(void*, const void*, int, void*, void*, std::int64_t, int);
 
 find_first_fn find_first_original = nullptr;
 find_next_fn find_next_original = nullptr;
@@ -81,13 +82,17 @@ read_file_fn read_file_original = nullptr;
 texture_load_bits_fn texture_load_bits_original = nullptr;
 get_scratch_vtf_texture_fn get_scratch_vtf_texture = nullptr;
 handle_file_load_failed_texture_fn handle_file_load_failed_texture = nullptr;
+bone_setup_attachment_matrices_fn bone_setup_attachment_matrices_original = nullptr;
 
 void** file_system_vtable = nullptr;
 void** base_file_system_vtable = nullptr;
 funchook_t* texture_load_bits_funchook = nullptr;
+funchook_t* bone_setup_attachment_matrices_funchook = nullptr;
 bool file_system_hooked = false;
 bool texture_load_bits_hooked = false;
 bool texture_load_bits_hook_failed = false;
+bool bone_setup_attachment_matrices_hooked = false;
+bool bone_setup_attachment_matrices_hook_failed = false;
 bool material_stub_enabled = false;
 bool render_patches_applied = false;
 bool optional_render_patches_applied = false;
@@ -543,6 +548,30 @@ void add_files_to_cache_hook(void* this_ptr, file_cache_handle_t cache_id, const
     path_id);
 }
 
+std::int64_t bone_setup_attachment_matrices_hook(
+  void* studio_hdr,
+  const void* parent_transform,
+  int bone_index,
+  void* bone_matrix_buffer,
+  void* attachment_data,
+  std::int64_t origin_buffer,
+  int origin_count)
+{
+  if (bone_matrix_buffer == nullptr)
+  {
+    return 0;
+  }
+
+  return bone_setup_attachment_matrices_original(
+    studio_hdr,
+    parent_transform,
+    bone_index,
+    bone_matrix_buffer,
+    attachment_data,
+    origin_buffer,
+    origin_count);
+}
+
 void* texture_load_bits_hook(void* this_ptr, const char* cache_file_name, char** resolved_filename)
 {
   if (should_skip_texture_file(cache_file_name) &&
@@ -937,6 +966,87 @@ void restore_render_patches()
 
 void disable_file_system_hooks();
 void disable_texture_load_hook();
+void disable_bone_setup_attachment_matrices_guard();
+
+void enable_bone_setup_attachment_matrices_guard()
+{
+  if (bone_setup_attachment_matrices_hooked ||
+      bone_setup_attachment_matrices_hook_failed ||
+      !module_is_loaded("client.so"))
+  {
+    return;
+  }
+
+  bone_setup_attachment_matrices_original =
+    reinterpret_cast<bone_setup_attachment_matrices_fn>(
+      sigscan_module("client.so", sigs::bone_setup_attachment_matrices));
+  if (bone_setup_attachment_matrices_original == nullptr)
+  {
+    bone_setup_attachment_matrices_hook_failed = true;
+    print("[nographics] bone-setup attachment matrices scan failed\n");
+    return;
+  }
+
+  bone_setup_attachment_matrices_funchook = funchook_create();
+  if (bone_setup_attachment_matrices_funchook == nullptr)
+  {
+    bone_setup_attachment_matrices_hook_failed = true;
+    bone_setup_attachment_matrices_original = nullptr;
+    print("[nographics] bone-setup attachment matrices hook create failed\n");
+    return;
+  }
+
+  int result = funchook_prepare(
+    bone_setup_attachment_matrices_funchook,
+    reinterpret_cast<void**>(&bone_setup_attachment_matrices_original),
+    reinterpret_cast<void*>(bone_setup_attachment_matrices_hook));
+  if (result != 0)
+  {
+    bone_setup_attachment_matrices_hook_failed = true;
+    funchook_destroy(bone_setup_attachment_matrices_funchook);
+    bone_setup_attachment_matrices_funchook = nullptr;
+    bone_setup_attachment_matrices_original = nullptr;
+    print("[nographics] bone-setup attachment matrices hook prepare failed result=%d\n", result);
+    return;
+  }
+
+  result = funchook_install(bone_setup_attachment_matrices_funchook, 0);
+  if (result != 0)
+  {
+    bone_setup_attachment_matrices_hook_failed = true;
+    funchook_destroy(bone_setup_attachment_matrices_funchook);
+    bone_setup_attachment_matrices_funchook = nullptr;
+    bone_setup_attachment_matrices_original = nullptr;
+    print("[nographics] bone-setup attachment matrices hook install failed result=%d\n", result);
+    return;
+  }
+
+  bone_setup_attachment_matrices_hooked = true;
+  print("[nographics] bone-setup attachment matrices guard enabled\n");
+}
+
+void disable_bone_setup_attachment_matrices_guard()
+{
+  if (bone_setup_attachment_matrices_funchook == nullptr)
+  {
+    bone_setup_attachment_matrices_hooked = false;
+    return;
+  }
+
+  if (bone_setup_attachment_matrices_hooked)
+  {
+    const int result = funchook_uninstall(bone_setup_attachment_matrices_funchook, 0);
+    if (result != 0)
+    {
+      print("[nographics] bone-setup attachment matrices uninstall failed result=%d\n", result);
+    }
+  }
+
+  funchook_destroy(bone_setup_attachment_matrices_funchook);
+  bone_setup_attachment_matrices_funchook = nullptr;
+  bone_setup_attachment_matrices_original = nullptr;
+  bone_setup_attachment_matrices_hooked = false;
+}
 
 void enable_texture_load_hook()
 {
@@ -1185,6 +1295,7 @@ void prepare_startup_patches()
     resolve_material_system_interface();
     enable_texture_load_hook();
     enable_file_system_hooks();
+    enable_bone_setup_attachment_matrices_guard();
     update_material_stub(true);
     apply_render_patches();
   }
@@ -1223,6 +1334,7 @@ void update()
   {
     enable_texture_load_hook();
     enable_file_system_hooks();
+    enable_bone_setup_attachment_matrices_guard();
     update_material_stub(true);
     if (textmode_build || config.misc.exploits.null_graphics_render_stubs)
     {
@@ -1239,6 +1351,7 @@ void update()
   update_material_stub(false);
   disable_texture_load_hook();
   disable_file_system_hooks();
+  disable_bone_setup_attachment_matrices_guard();
 }
 
 void shutdown()
@@ -1247,6 +1360,7 @@ void shutdown()
   update_material_stub(false);
   disable_texture_load_hook();
   disable_file_system_hooks();
+  disable_bone_setup_attachment_matrices_guard();
 }
 
 bool is_enabled()
