@@ -32,9 +32,10 @@ constexpr std::uintptr_t anim_state_gait_yaw_offset = 100;
 constexpr std::uintptr_t anim_state_eye_yaw_offset = 140;
 constexpr std::uintptr_t anim_state_eye_pitch_offset = 144;
 
-constexpr int cached_bone_frame_counter_delta = -0x3C8;
-constexpr int cached_bone_readable_mask_delta = -0x3A0;
-constexpr int cached_bone_last_setup_time_delta = -0x48;
+//   mov dword ptr [rdi+0xBA0], 0xFF7FFFFF        ; m_flLastBoneSetupTime = -FLT_MAX
+//   mov qword ptr [rdi+0x820], g_iModelBoneCounter - 1
+constexpr int cached_bone_last_setup_time_delta = -0x30;
+constexpr int cached_bone_frame_counter_delta = -0x3B0;
 
 struct anim_state_snapshot {
   bool valid = false;
@@ -191,19 +192,9 @@ inline std::array<player_resolver_state, max_entities> g_resolver_state{};
   return offset;
 }
 
-[[nodiscard]] inline int cached_bone_data_offset()
+[[nodiscard]] inline int lighting_origin_offset()
 {
-  static int offset = 0;
-  static bool initialized = false;
-
-  if (!initialized) {
-    initialized = true;
-    const int lighting_origin_offset = tf2_netvars::find_offset("DT_BaseAnimating", { "m_hLightingOrigin" });
-    if (lighting_origin_offset > 0x58) {
-      offset = lighting_origin_offset - 0x58;
-    }
-  }
-
+  static const int offset = tf2_netvars::find_offset("DT_BaseAnimating", { "m_hLightingOrigin" });
   return offset;
 }
 
@@ -244,17 +235,23 @@ inline std::array<player_resolver_state, max_entities> g_resolver_state{};
   return std::clamp((clamp_pitch(pitch) + 90.0f) / 180.0f, 0.0f, 1.0f);
 }
 
+//   m_flLastBoneSetupTime       = -FLT_MAX
+//   m_iMostRecentModelBoneCounter = g_iModelBoneCounter - 1
 inline void force_bone_rebuild(Player* player)
 {
-  const int offset = cached_bone_data_offset();
-  if (player == nullptr || offset <= 0) {
+  const int origin_offset = lighting_origin_offset();
+  if (player == nullptr || origin_offset <= 0) {
     return;
   }
 
-  auto* cached_base = reinterpret_cast<std::uint8_t*>(player) + offset;
-  *reinterpret_cast<std::uint64_t*>(cached_base + cached_bone_frame_counter_delta) = 0;
-  *reinterpret_cast<int*>(cached_base + cached_bone_readable_mask_delta) = 0;
-  *reinterpret_cast<float*>(cached_base + cached_bone_last_setup_time_delta) = -FLT_MAX;
+  constexpr int min_required_offset = -cached_bone_frame_counter_delta + 0x10;
+  if (origin_offset < min_required_offset) {
+    return;
+  }
+
+  auto* anchor = reinterpret_cast<std::uint8_t*>(player) + origin_offset;
+  *reinterpret_cast<float*>(anchor + cached_bone_last_setup_time_delta) = -FLT_MAX;
+  *reinterpret_cast<std::uint64_t*>(anchor + cached_bone_frame_counter_delta) = 0;
 }
 
 [[nodiscard]] inline bool read_anim_state_snapshot(Player* player, anim_state_snapshot* snapshot)
