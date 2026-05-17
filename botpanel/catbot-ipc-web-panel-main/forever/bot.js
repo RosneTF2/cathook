@@ -885,6 +885,7 @@ class Bot extends EventEmitter {
         this.ipcLastHeartbeat = 0;
         this.ipcID = -1;
         this.time_ipc_identity_missing = 0;
+        this.time_ipc_peer_missing = 0;
 
         this.gameStarted = 0;
         this.gamePid = -1;
@@ -897,6 +898,8 @@ class Bot extends EventEmitter {
         this.steamClientInitialized = false;
         this.game_kill_generation = 0;
         this.steam_kill_generation = 0;
+        this.lastRestartReason = '';
+        this.lastGameKillReason = '';
         this.terminal_auth_state = 0;
         this.clear_steam_webhelper_cache_before_start = false;
 
@@ -2264,6 +2267,7 @@ class Bot extends EventEmitter {
         const game_log_tail = log_file_tail('./logs/' + this.name + '.game.log', 25);
         if (game_log_tail)
             this.log(`Game log tail:\n${game_log_tail}`);
+        this.writeGameExitDiagnostics(code, signal, launcher_pid, game_pid, game_log_tail);
         if (!this.ipcState && !this.gameStarted && game_startup_log_has_fatal_error(game_log_tail)) {
             this.log('[ERROR] TF2 exited during startup after failing to load engine.so; stopping this bot instead of restarting in a loop.');
             this.log('Check missing libraries with ldd on tf_linux64 and bin/linux64/engine.so, then run ./install-deps.');
@@ -2295,6 +2299,7 @@ class Bot extends EventEmitter {
         this.ipcID = -1;
         this.ipcLastHeartbeat = 0;
         this.time_ipc_identity_missing = 0;
+        this.time_ipc_peer_missing = 0;
     }
 
     ipc_heartbeat_stale(time) {
@@ -2308,11 +2313,23 @@ class Bot extends EventEmitter {
         return !this.ipcState || !this.ipcState.friendid || this.ipcState.friendid === 0;
     }
 
+    mark_ipc_peer_missing(time) {
+        if (!this.ipcState || this.ipcID < 0 || this.shouldRestart)
+            return;
+
+        if (!this.time_ipc_peer_missing)
+            this.time_ipc_peer_missing = time;
+
+        if (time - this.time_ipc_peer_missing > 5000)
+            this.request_restart(`IPC peer ${this.ipcID} disappeared from server query`);
+    }
+
     steam_boot_in_progress() {
         return this.state === STATE.STARTING && !!this.procFirejailSteam && !this.steamClientInitialized;
     }
 
     request_restart(reason) {
+        this.lastRestartReason = reason || 'unspecified restart';
         this.log(`Restart requested: ${reason}`);
         this.clear_ipc_state();
         this.terminal_auth_state = 0;
@@ -2336,6 +2353,7 @@ class Bot extends EventEmitter {
         this.time_gameCheck = 0;
         this.time_ipcState = 0;
         this.time_ipc_identity_missing = 0;
+        this.time_ipc_peer_missing = 0;
         this.time_steamwebhelper_cleanup = 0;
         this.time_steamStatusLog = 0;
         this.time_steam_boot_status_log = 0;
@@ -2345,6 +2363,8 @@ class Bot extends EventEmitter {
         this.steam_quick_exit_count = 0;
         this.steamwebhelper_cleanup_done = false;
         this.steamwebhelper_frozen_pid = -1;
+        this.lastRestartReason = '';
+        this.lastGameKillReason = '';
         this.terminal_auth_state = 0;
         this.gamePid = -1;
         this.gameStarted = 0;
@@ -2394,8 +2414,9 @@ class Bot extends EventEmitter {
             this.schedule_forced_runtime_kill('steam', pid, generation);
         }
     }
-    killGame() {
-        this.log('Killing game');
+    killGame(reason) {
+        this.lastGameKillReason = reason || this.lastRestartReason || 'panel requested game kill';
+        this.log(`Killing game: ${this.lastGameKillReason}`);
         if (this.procFirejailGame) {
             const pid = this.procFirejailGame.pid;
             const generation = ++this.game_kill_generation;
@@ -2441,6 +2462,34 @@ class Bot extends EventEmitter {
     appendGdbLog(text) {
         fs.mkdirSync('./logs', { recursive: true });
         fs.appendFileSync(this.gdbLogPath(), text);
+    }
+
+    writeGameExitDiagnostics(code, signal, launcher_pid, game_pid, game_log_tail) {
+        let ipc_snapshot = 'null';
+        try {
+            ipc_snapshot = JSON.stringify(this.ipcState || null);
+        } catch (error) {
+            ipc_snapshot = `[unserializable ipcState: ${error.message}]`;
+        }
+
+        this.appendGdbLog([
+            '',
+            `========== ${new Date().toISOString()} game exit ==========`,
+            `bot=${this.name}`,
+            `state=${this.state}`,
+            `launcher_pid=${launcher_pid}`,
+            `game_pid=${game_pid}`,
+            `code=${code}`,
+            `signal=${signal}`,
+            `restart_reason=${this.lastRestartReason || 'none'}`,
+            `game_kill_reason=${this.lastGameKillReason || 'none'}`,
+            `ipc_id=${this.ipcID}`,
+            `ipc_snapshot=${ipc_snapshot}`,
+            '[game log tail]',
+            game_log_tail || 'unavailable',
+            '=======================================',
+            ''
+        ].join('\n'));
     }
 
     removeGamePreloadLibrary() {
@@ -2669,6 +2718,7 @@ class Bot extends EventEmitter {
         if (!data)
             return;
 
+        this.time_ipc_peer_missing = 0;
         if (!this.startTime && data.starttime)
             this.startTime = data.starttime;
         if (data.pid)
@@ -2840,7 +2890,7 @@ class Bot extends EventEmitter {
                                 }
                                 this.run_steamwebhelper_cleanup_if_ready(time);
                             } else if (this.time_ipcState && time > this.time_ipcState) {
-                                this.killGame();
+                                this.killGame('IPC state timeout before first heartbeat');
                                 this.time_ipcState = 0;
                             }
 
@@ -2851,7 +2901,7 @@ class Bot extends EventEmitter {
             }
             else {
                 if (this.procFirejailGame) {
-                    this.killGame();
+                    this.killGame('bot shouldRun disabled while game is running');
                 }
                 else {
                     if (!this.account) {
@@ -2888,7 +2938,7 @@ class Bot extends EventEmitter {
         }
         else {
             if (this.procFirejailGame) {
-                this.killGame();
+                this.killGame('restart requested while game is running');
             }
             if (this.procFirejailSteam) {
                 this.killSteam();

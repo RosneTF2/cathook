@@ -91,6 +91,7 @@ class BotManager {
                         self.updateTimeout = setTimeout(self.update.bind(self), 1000);
                         self.lastQuery = data;
                         if (data.result) {
+                            const query_time = Date.now();
                             for (var q in data.result) {
                                 const peer = data.result[q];
                                 var best_bot = null;
@@ -105,6 +106,11 @@ class BotManager {
 
                                 if (best_bot)
                                     best_bot.accept_ipc_peer(q, peer);
+                            }
+                            for (const bot of self.bots) {
+                                const assigned_peer = bot.ipcID >= 0 ? data.result[String(bot.ipcID)] : null;
+                                if (bot.ipcID >= 0 && (!assigned_peer || !assigned_peer.pid || !assigned_peer.heartbeat))
+                                    bot.mark_ipc_peer_missing(query_time);
                             }
                         }
                     } catch (error) {
