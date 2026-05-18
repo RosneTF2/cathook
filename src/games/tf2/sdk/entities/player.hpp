@@ -273,7 +273,9 @@ public:
     player_info pinfo;
     if (engine->get_player_info(this->get_index(), &pinfo) && pinfo.friends_id != 0 && pinfo.fakeplayer != true) { 
       const auto account_id = static_cast<std::uint32_t>(pinfo.friends_id);
-      if (cathook::core::players::is_friendly(account_id) || cat_ipc::client::is_local_ipc_friend(account_id)) {
+      const auto state = cathook::core::players::state_for(account_id);
+      if (state == cathook::core::players::player_state::friend_state ||
+          state == cathook::core::players::player_state::party) {
         return true;
       }
 
@@ -287,7 +289,7 @@ public:
     player_info pinfo;
     if (engine->get_player_info(this->get_index(), &pinfo) && pinfo.friends_id != 0 && pinfo.fakeplayer != true) {
       const auto account_id = static_cast<std::uint32_t>(pinfo.friends_id);
-      return cathook::core::players::is_ignored(account_id) || cat_ipc::client::is_local_ipc_friend(account_id);
+      return cathook::core::players::is_ignored(account_id);
     }
 
     return false;

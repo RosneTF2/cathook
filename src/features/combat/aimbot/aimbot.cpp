@@ -60,6 +60,14 @@ struct aimbot_scan_debug_stats {
   int candidates_total = 0;
   int candidates_visible = 0;
   int candidates_rejected = 0;
+  int skipped_ignored = 0;
+  int skipped_friends = 0;
+  int skipped_ipc = 0;
+  int skipped_cloaked = 0;
+  int skipped_team = 0;
+  int skipped_invulnerable = 0;
+  int skipped_dead = 0;
+  int skipped_type = 0;
 };
 
 struct aimbot_hitscan_fire_solution {
@@ -93,6 +101,38 @@ aimbot_scan_debug_stats g_aimbot_scan_debug{};
 aimbot_auto_shoot_state g_aimbot_auto_shoot{};
 
 float aimbot_actual_frame_time();
+
+void aimbot_record_player_skip(aimbot_player_skip_reason reason) {
+  ++g_aimbot_scan_debug.candidates_rejected;
+  switch (reason) {
+  case aimbot_player_skip_reason::ignored:
+    ++g_aimbot_scan_debug.skipped_ignored;
+    break;
+  case aimbot_player_skip_reason::friend_state:
+    ++g_aimbot_scan_debug.skipped_friends;
+    break;
+  case aimbot_player_skip_reason::ipc_bot:
+    ++g_aimbot_scan_debug.skipped_ipc;
+    break;
+  case aimbot_player_skip_reason::cloaked:
+    ++g_aimbot_scan_debug.skipped_cloaked;
+    break;
+  case aimbot_player_skip_reason::team:
+    ++g_aimbot_scan_debug.skipped_team;
+    break;
+  case aimbot_player_skip_reason::invulnerable:
+    ++g_aimbot_scan_debug.skipped_invulnerable;
+    break;
+  case aimbot_player_skip_reason::dead:
+    ++g_aimbot_scan_debug.skipped_dead;
+    break;
+  case aimbot_player_skip_reason::type:
+    ++g_aimbot_scan_debug.skipped_type;
+    break;
+  default:
+    break;
+  }
+}
 
 void aimbot_clear_walk_to_target()
 {
@@ -822,8 +862,9 @@ aimbot_candidate aimbot_find_best_projectile_candidate(Player* localplayer,
   for (const entity_cache_player_entry& entry : entity_cache_players()) {
     Player* player = entry.player;
     ++g_aimbot_scan_debug.candidates_total;
-    if (aimbot_should_skip_player(localplayer, player)) {
-      ++g_aimbot_scan_debug.candidates_rejected;
+    const auto skip_reason = aimbot_player_skip_reason_for(localplayer, player);
+    if (skip_reason != aimbot_player_skip_reason::none) {
+      aimbot_record_player_skip(skip_reason);
       continue;
     }
 
@@ -1045,8 +1086,9 @@ static aimbot_candidate aimbot_find_best_candidate(Player* localplayer, Weapon* 
     for (const entity_cache_player_entry& entry : entity_cache_players()) {
       Player* player = entry.player;
       ++g_aimbot_scan_debug.candidates_total;
-      if (aimbot_should_skip_player(localplayer, player)) {
-        ++g_aimbot_scan_debug.candidates_rejected;
+      const auto skip_reason = aimbot_player_skip_reason_for(localplayer, player);
+      if (skip_reason != aimbot_player_skip_reason::none) {
+        aimbot_record_player_skip(skip_reason);
         continue;
       }
 
@@ -1118,7 +1160,10 @@ static aimbot_candidate aimbot_find_best_scope_candidate(Player* localplayer, We
 
   for (const entity_cache_player_entry& entry : entity_cache_players()) {
     Player* player = entry.player;
-    if (aimbot_should_skip_player(localplayer, player)) {
+    ++g_aimbot_scan_debug.candidates_total;
+    const auto skip_reason = aimbot_player_skip_reason_for(localplayer, player);
+    if (skip_reason != aimbot_player_skip_reason::none) {
+      aimbot_record_player_skip(skip_reason);
       continue;
     }
 
@@ -1260,10 +1305,6 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
     clear_aimbot_preference();
   }
 
-  if (target_player != nullptr && (target_player->is_ignored() || (target_player->is_friend() && config.aimbot.ignore_friends))) {
-    target_player = nullptr;
-  }
-
   if (target_player != nullptr && aimbot_should_skip_player(localplayer, target_player)) {
     target_player = nullptr;
   }
@@ -1282,6 +1323,14 @@ bool aimbot(user_cmd* user_cmd, Vec3 original_view_angles) {
   debug_state.candidates_total = g_aimbot_scan_debug.candidates_total;
   debug_state.candidates_visible = g_aimbot_scan_debug.candidates_visible;
   debug_state.candidates_rejected = g_aimbot_scan_debug.candidates_rejected;
+  debug_state.skipped_ignored = g_aimbot_scan_debug.skipped_ignored;
+  debug_state.skipped_friends = g_aimbot_scan_debug.skipped_friends;
+  debug_state.skipped_ipc = g_aimbot_scan_debug.skipped_ipc;
+  debug_state.skipped_cloaked = g_aimbot_scan_debug.skipped_cloaked;
+  debug_state.skipped_team = g_aimbot_scan_debug.skipped_team;
+  debug_state.skipped_invulnerable = g_aimbot_scan_debug.skipped_invulnerable;
+  debug_state.skipped_dead = g_aimbot_scan_debug.skipped_dead;
+  debug_state.skipped_type = g_aimbot_scan_debug.skipped_type;
   if (best_candidate.entity != nullptr) {
     debug_state.selected_entity_index = best_candidate.entity->get_index();
     debug_state.selected_hitbox = best_candidate.hitbox;

@@ -337,7 +337,7 @@ inline void draw_aimbot_debug_section(ImDrawList* draw_list, const ImVec2 positi
 {
   const aimbot_debug_state& state = aimbot_debug_get_state();
   constexpr float width = 300.0f;
-  constexpr float height = 225.0f;
+  constexpr float height = 242.0f;
   constexpr float row_height = 17.0f;
   draw_panel_box(draw_list, position, ImVec2(width, height));
 
@@ -359,6 +359,8 @@ inline void draw_aimbot_debug_section(ImDrawList* draw_list, const ImVec2 positi
   draw_info_row(draw_list, ImVec2(position.x, row_y), width, "trace", std::to_string(state.trace_entity_index) + " hb " + std::to_string(state.trace_hitbox), value_color);
   row_y += row_height;
   draw_info_row(draw_list, ImVec2(position.x, row_y), width, "candidates", std::to_string(state.candidates_visible) + "/" + std::to_string(state.candidates_total) + " reject " + std::to_string(state.candidates_rejected), value_color);
+  row_y += row_height;
+  draw_info_row(draw_list, ImVec2(position.x, row_y), width, "skip ig/fr/ip/cl/tm/in/de/type", std::to_string(state.skipped_ignored) + "/" + std::to_string(state.skipped_friends) + "/" + std::to_string(state.skipped_ipc) + "/" + std::to_string(state.skipped_cloaked) + "/" + std::to_string(state.skipped_team) + "/" + std::to_string(state.skipped_invulnerable) + "/" + std::to_string(state.skipped_dead) + "/" + std::to_string(state.skipped_type), value_color);
   row_y += row_height;
   draw_info_row(draw_list, ImVec2(position.x, row_y), width, "resolver", std::string(state.resolver_active ? "on " : "off ") + aimbot_debug_resolver_mode_name(state.resolver_mode) + " y" + std::to_string(state.resolver_candidates), value_color);
   row_y += row_height;

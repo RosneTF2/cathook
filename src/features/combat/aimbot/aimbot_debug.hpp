@@ -55,6 +55,14 @@ struct aimbot_debug_state {
   int candidates_total = 0;
   int candidates_visible = 0;
   int candidates_rejected = 0;
+  int skipped_ignored = 0;
+  int skipped_friends = 0;
+  int skipped_ipc = 0;
+  int skipped_cloaked = 0;
+  int skipped_team = 0;
+  int skipped_invulnerable = 0;
+  int skipped_dead = 0;
+  int skipped_type = 0;
   int resolver_mode = 0;
   int resolver_candidates = 0;
   int resolver_misses = 0;

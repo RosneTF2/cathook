@@ -1352,6 +1352,7 @@ static void draw_beta_notice(void) {
 static void draw_aimbot_content() {
   const char* target_items[] = { "FOV", "Distance", "Least Health", "Most Health" };
   const char* aim_at_items[] = { "Enemies", "Buildings", "MvM robots", "Pumpkins", "Stickies" };
+  const char* ignore_items[] = { "Friends", "IPC bots", "Cloaked", "Invulnerable" };
   const char* aim_mode_items[] = { "Plain", "Smooth", "Assistive", "Psilent" };
   const char* projectile_mode_items[] = { "Direct only", "Direct + splash", "Prefer splash", "Splash only" };
   const char* hitbox_items[] = { "Head", "Body", "Pelvis", "Arms", "Legs" };
@@ -1362,6 +1363,12 @@ static void draw_aimbot_content() {
     Aim::aim_at_mvm_robots,
     Aim::aim_at_pumpkins,
     Aim::aim_at_stickies
+  };
+  const uint32_t ignore_bits[] = {
+    Aim::ignore_friends,
+    Aim::ignore_ipc_bots,
+    Aim::ignore_cloaked,
+    Aim::ignore_invulnerable
   };
   const uint32_t hitbox_bits[] = {
     aim_hitbox_mask_head,
@@ -1401,7 +1408,7 @@ static void draw_aimbot_content() {
     cat_menu::multi_select_combo("Melee hitboxes", &config.aimbot.melee_hitboxes, hitbox_items, hitbox_bits, IM_ARRAYSIZE(hitbox_items));
     cat_menu::checkbox("Melee walk to target", &config.aimbot.melee_walk_to_target);
     cat_menu::multi_select_combo("Projectile hitboxes", &config.aimbot.projectile_hitboxes, projectile_hitbox_items, projectile_hitbox_bits, IM_ARRAYSIZE(projectile_hitbox_items));
-    cat_menu::checkbox("Ignore friends", &config.aimbot.ignore_friends);
+    cat_menu::multi_select_combo("Ignore", &config.aimbot.ignore, ignore_items, ignore_bits, IM_ARRAYSIZE(ignore_items));
     cat_menu::slider_int("Max targets", &config.aimbot.max_targets, 1, 6);
   });
   cat_menu::flow_panel("Projectile", 1, 296.0f, [&]() {

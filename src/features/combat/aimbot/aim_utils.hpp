@@ -21,6 +21,7 @@ V  o o  V  file: src/features/combat/aimbot/aim_utils.hpp
 #include "aimbot_debug.hpp"
 
 #include "core/entity_cache.hpp"
+#include "core/ipc/ipc_client.hpp"
 #include "core/math/math.hpp"
 
 #include "features/menu/config.hpp"
@@ -824,17 +825,56 @@ inline bool aimbot_should_target_player_type(Player* player) {
   return aimbot_aim_at_enabled(Aim::aim_at_enemies);
 }
 
+inline bool aimbot_ignore_enabled(uint32_t flag) {
+  return (config.aimbot.ignore & flag) != 0;
+}
+
+enum class aimbot_player_skip_reason {
+  none,
+  invalid,
+  local,
+  dormant,
+  dead,
+  invulnerable,
+  ignored,
+  friend_state,
+  ipc_bot,
+  cloaked,
+  team,
+  type
+};
+
+inline aimbot_player_skip_reason aimbot_player_skip_reason_for(Player* localplayer, Player* player) {
+  if (localplayer == nullptr || player == nullptr) return aimbot_player_skip_reason::invalid;
+  if (player == localplayer) return aimbot_player_skip_reason::local;
+  if (player->is_dormant()) return aimbot_player_skip_reason::dormant;
+  if (!player->is_alive()) return aimbot_player_skip_reason::dead;
+  if (aimbot_ignore_enabled(Aim::ignore_invulnerable) && player->is_invulnerable()) return aimbot_player_skip_reason::invulnerable;
+  if (player->is_ignored()) return aimbot_player_skip_reason::ignored;
+  if (aimbot_ignore_enabled(Aim::ignore_friends) && player->is_friend()) return aimbot_player_skip_reason::friend_state;
+  if (aimbot_ignore_enabled(Aim::ignore_cloaked) &&
+      (player->in_cond(TF_COND_STEALTHED) ||
+       player->in_cond(TF_COND_STEALTHED_BLINK) ||
+       player->in_cond(TF_COND_STEALTHED_USER_BUFF) ||
+       player->in_cond(TF_COND_STEALTHED_USER_BUFF_FADING))) {
+    return aimbot_player_skip_reason::cloaked;
+  }
+  player_info pinfo{};
+  if (aimbot_ignore_enabled(Aim::ignore_ipc_bots) &&
+      engine != nullptr &&
+      engine->get_player_info(player->get_index(), &pinfo) &&
+      pinfo.friends_id != 0 &&
+      pinfo.fakeplayer != true &&
+      cat_ipc::client::is_local_ipc_friend(static_cast<std::uint32_t>(pinfo.friends_id))) {
+    return aimbot_player_skip_reason::ipc_bot;
+  }
+  if (player->get_team() == localplayer->get_team() && !aimbot_is_friendlyfire_enabled()) return aimbot_player_skip_reason::team;
+  if (!aimbot_should_target_player_type(player)) return aimbot_player_skip_reason::type;
+  return aimbot_player_skip_reason::none;
+}
+
 inline bool aimbot_should_skip_player(Player* localplayer, Player* player) {
-  if (localplayer == nullptr || player == nullptr) return true;
-  if (player == localplayer) return true;
-  if (player->is_dormant()) return true;
-  if (!player->is_alive()) return true;
-  if (player->is_invulnerable()) return true;
-  if (player->is_ignored()) return true;
-  if (config.aimbot.ignore_friends && player->is_friend()) return true;
-  if (player->get_team() == localplayer->get_team() && !aimbot_is_friendlyfire_enabled()) return true;
-  if (!aimbot_should_target_player_type(player)) return true;
-  return false;
+  return aimbot_player_skip_reason_for(localplayer, player) != aimbot_player_skip_reason::none;
 }
 
 inline bool aimbot_entity_is_enemy_owned(Player* localplayer, Entity* entity) {

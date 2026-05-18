@@ -73,6 +73,15 @@ struct Aim {
     SPLASH_ONLY
   };
 
+  enum ignore_player_flags : uint32_t {
+    ignore_friends = 1u << 0,
+    ignore_ipc_bots = 1u << 1,
+    ignore_cloaked = 1u << 2,
+    ignore_invulnerable = 1u << 3,
+    ignore_default = ignore_friends | ignore_ipc_bots | ignore_invulnerable,
+    ignore_all = ignore_friends | ignore_ipc_bots | ignore_cloaked | ignore_invulnerable
+  };
+
   bool master = true;
 
   bool auto_shoot = true;
@@ -125,7 +134,7 @@ struct Aim {
   bool scoped_only = false;
   bool wait_for_headshot = false;
   
-  bool ignore_friends = true;
+  uint32_t ignore = ignore_default;
 
   int max_targets = 6;
 };

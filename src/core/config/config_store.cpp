@@ -230,7 +230,7 @@ void config_store::import_config(const Config& config)
     set_float("aimbot.auto_rev_threshold", config.aimbot.auto_rev_threshold);
     set_bool("aimbot.scoped_only", config.aimbot.scoped_only);
     set_bool("aimbot.wait_for_headshot", config.aimbot.wait_for_headshot);
-    set_bool("aimbot.ignore_friends", config.aimbot.ignore_friends);
+    set_int("aimbot.ignore", static_cast<int>(config.aimbot.ignore));
     set_int("aimbot.max_targets", config.aimbot.max_targets);
     set_bool("backtrack.enabled", config.backtrack.enabled);
     set_bool("backtrack.aimbot", config.backtrack.aimbot);
@@ -614,7 +614,19 @@ void config_store::export_config(Config& config) const
     config.aimbot.auto_rev_threshold = get_float("aimbot.auto_rev_threshold", config.aimbot.auto_rev_threshold);
     config.aimbot.scoped_only = get_bool("aimbot.scoped_only", config.aimbot.scoped_only);
     config.aimbot.wait_for_headshot = get_bool("aimbot.wait_for_headshot", config.aimbot.wait_for_headshot);
-    config.aimbot.ignore_friends = get_bool("aimbot.ignore_friends", config.aimbot.ignore_friends);
+    int ignore_default = config.aimbot.ignore;
+    if (get_bool("aimbot.ignore_friends", true)) {
+        ignore_default |= Aim::ignore_friends;
+    } else {
+        ignore_default &= ~Aim::ignore_friends;
+    }
+    if (get_int("aimbot.ipc_bot_mode", get_bool("aimbot.ignore_ipc_bots", true) ? 1 : 0) == 1) {
+        ignore_default |= Aim::ignore_ipc_bots;
+    } else {
+        ignore_default &= ~Aim::ignore_ipc_bots;
+    }
+    config.aimbot.ignore = static_cast<std::uint32_t>(
+        std::clamp(get_int("aimbot.ignore", ignore_default), 0, static_cast<int>(Aim::ignore_all)));
     config.aimbot.max_targets = std::clamp(get_int("aimbot.max_targets", config.aimbot.max_targets), 1, 6);
     config.backtrack.enabled = get_bool("backtrack.enabled", config.backtrack.enabled);
     config.backtrack.aimbot = get_bool("backtrack.aimbot", config.backtrack.aimbot);
