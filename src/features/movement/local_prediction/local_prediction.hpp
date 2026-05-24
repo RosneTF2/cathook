@@ -309,31 +309,43 @@ inline Vec3 local_prediction_estimate_entity_velocity(Entity* entity) {
   const LocalPredictionEntityHistory& history = local_prediction_entity_history[ent_index];
   if (history.sample_count < 2) return Vec3{};
 
-  Vec3 sum{};
-  float weight = 0.0f;
-  const int max_pairs = std::min(history.sample_count - 1, 8);
-  for (int i = 0; i < max_pairs; ++i) {
-    const LocalPredictionEntityHistorySample& newer = history.samples[i];
-    const LocalPredictionEntityHistorySample& older = history.samples[i + 1];
+  const auto pair_velocity = [](const LocalPredictionEntityHistorySample& newer,
+                                const LocalPredictionEntityHistorySample& older,
+                                Vec3* out) -> bool {
     float dt = newer.sim_time - older.sim_time;
     if (dt <= 0.0001f) {
       dt = newer.curtime - older.curtime;
     }
     if (dt <= 0.0001f) {
-      continue;
+      return false;
     }
-    const float w = 1.0f / (1.0f + static_cast<float>(i));
-    sum.x += ((newer.origin.x - older.origin.x) / dt) * w;
-    sum.y += ((newer.origin.y - older.origin.y) / dt) * w;
-    sum.z += ((newer.origin.z - older.origin.z) / dt) * w;
-    weight += w;
-  }
+    *out = Vec3{
+      (newer.origin.x - older.origin.x) / dt,
+      (newer.origin.y - older.origin.y) / dt,
+      (newer.origin.z - older.origin.z) / dt
+    };
+    return true;
+  };
 
-  if (weight <= 0.0001f) {
+  Vec3 newest{};
+  if (!pair_velocity(history.samples[0], history.samples[1], &newest)) {
     return Vec3{};
   }
 
-  return Vec3{sum.x / weight, sum.y / weight, sum.z / weight};
+  if (history.sample_count < 3) {
+    return newest;
+  }
+
+  Vec3 prev{};
+  if (!pair_velocity(history.samples[1], history.samples[2], &prev)) {
+    return newest;
+  }
+
+  return Vec3{
+    (newest.x * 0.75f) + (prev.x * 0.25f),
+    (newest.y * 0.75f) + (prev.y * 0.25f),
+    (newest.z * 0.75f) + (prev.z * 0.25f)
+  };
 }
 
 struct LocalPredictionEntityPath {
@@ -684,47 +696,19 @@ inline local_prediction_strafe_estimate local_prediction_estimate_strafe(Player*
     ++streak_pairs;
   }
 
-  if (streak_pairs < 3 || streak_yaw_ticks <= 0 || flipped_too_recently) {
+  if (streak_pairs < 2 || streak_yaw_ticks <= 0 || flipped_too_recently) {
     return estimate;
   }
 
   estimate.yaw_step = streak_yaw_sum / static_cast<float>(streak_yaw_ticks);
   estimate.confidence = std::clamp(
-    (static_cast<float>(streak_pairs) / static_cast<float>(std::max(3, sample_limit - 1))) * 100.0f,
+    (static_cast<float>(streak_pairs) / static_cast<float>(std::max(2, sample_limit - 1))) * 100.0f,
     0.0f,
     100.0f);
 
   float required_confidence = std::clamp(config.aimbot.projectile_strafe_confidence, 0.0f, 100.0f);
-  if (current_air) {
-    required_confidence = std::max(required_confidence, 58.0f);
-  }
-  if (current_speed > 700.0f) {
-    required_confidence = std::max(required_confidence, 70.0f);
-  }
-  if (current_speed > 1100.0f) {
-    required_confidence = std::max(required_confidence, current_air ? 80.0f : 88.0f);
-  }
 
-  if (entity_list != nullptr) {
-    if (Player* localplayer = entity_list->get_localplayer(); localplayer != nullptr) {
-      const Vec3 to_target = player->get_origin() - localplayer->get_origin();
-      const float distance = std::sqrt(
-        (to_target.x * to_target.x) +
-        (to_target.y * to_target.y) +
-        (to_target.z * to_target.z));
-      if (distance > 800.0f) {
-        const float t = std::clamp((distance - 800.0f) / (2200.0f - 800.0f), 0.0f, 1.0f);
-        required_confidence = std::max(required_confidence, 55.0f + (t * 35.0f));
-      }
-    }
-  }
-
-  if (current_air && current_speed > 650.0f) {
-    const float confidence_scale = std::clamp(estimate.confidence / 100.0f, 0.35f, 0.85f);
-    estimate.yaw_step *= confidence_scale;
-  }
-
-  estimate.valid = std::fabs(estimate.yaw_step) >= 0.12f &&
+  estimate.valid = std::fabs(estimate.yaw_step) >= 0.10f &&
     estimate.confidence >= required_confidence;
   return estimate;
 }
@@ -1771,8 +1755,6 @@ inline LocalPredictionProjectileParameters local_prediction_projectile_parameter
     params.max_time = 6.0f;
     break;
   case Soldier_m_TheDirectHit:
-    // Direct Hit base is the same 1100 as other rocket launchers; the 1.8x speed
-    // comes from the mult_projectile_speed attribute applied by projectile_speed.
     params.speed = projectile_speed(1100.0f);
     params.gravity = 0.0f;
     params.max_time = 4.0f;

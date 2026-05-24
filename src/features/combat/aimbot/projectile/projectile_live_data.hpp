@@ -30,15 +30,15 @@ inline float projectile_attr_float(Weapon* weapon, float base_value, const char*
 }
 
 inline float projectile_weapon_data_speed_or(Weapon* weapon, float fallback_speed) {
-  if (std::isfinite(fallback_speed) && fallback_speed > 1.0f) {
-    return fallback_speed;
-  }
   if (weapon == nullptr) {
     return fallback_speed;
   }
 
   const float data_speed = weapon->get_projectile_speed_from_data();
-  return data_speed > 1.0f ? data_speed : fallback_speed;
+  if (std::isfinite(data_speed) && data_speed > 1.0f) {
+    return data_speed;
+  }
+  return fallback_speed;
 }
 
 inline float projectile_speed_attr(Weapon* weapon, float base_speed) {
