@@ -309,20 +309,31 @@ inline Vec3 local_prediction_estimate_entity_velocity(Entity* entity) {
   const LocalPredictionEntityHistory& history = local_prediction_entity_history[ent_index];
   if (history.sample_count < 2) return Vec3{};
 
-  const LocalPredictionEntityHistorySample& newest = history.samples[0];
-  int reference_index = std::min(history.sample_count - 1, 3);
-  const LocalPredictionEntityHistorySample& oldest = history.samples[reference_index];
-  float delta_time = newest.sim_time - oldest.sim_time;
-  if (delta_time <= 0.0001f) {
-    delta_time = newest.curtime - oldest.curtime;
+  Vec3 sum{};
+  float weight = 0.0f;
+  const int max_pairs = std::min(history.sample_count - 1, 8);
+  for (int i = 0; i < max_pairs; ++i) {
+    const LocalPredictionEntityHistorySample& newer = history.samples[i];
+    const LocalPredictionEntityHistorySample& older = history.samples[i + 1];
+    float dt = newer.sim_time - older.sim_time;
+    if (dt <= 0.0001f) {
+      dt = newer.curtime - older.curtime;
+    }
+    if (dt <= 0.0001f) {
+      continue;
+    }
+    const float w = 1.0f / (1.0f + static_cast<float>(i));
+    sum.x += ((newer.origin.x - older.origin.x) / dt) * w;
+    sum.y += ((newer.origin.y - older.origin.y) / dt) * w;
+    sum.z += ((newer.origin.z - older.origin.z) / dt) * w;
+    weight += w;
   }
-  if (delta_time <= 0.0001f) return Vec3{};
 
-  Vec3 velocity{};
-  velocity.x = (newest.origin.x - oldest.origin.x) / delta_time;
-  velocity.y = (newest.origin.y - oldest.origin.y) / delta_time;
-  velocity.z = (newest.origin.z - oldest.origin.z) / delta_time;
-  return velocity;
+  if (weight <= 0.0001f) {
+    return Vec3{};
+  }
+
+  return Vec3{sum.x / weight, sum.y / weight, sum.z / weight};
 }
 
 struct LocalPredictionEntityPath {
@@ -601,28 +612,31 @@ inline local_prediction_strafe_estimate local_prediction_estimate_strafe(Player*
 
   const bool current_air = !history.samples[0].on_ground;
   const float current_speed = local_prediction_velocity_2d_length(history.samples[0].velocity);
-  const int wanted_samples = current_air ? 10 : 8;
+  const int wanted_samples = current_air ? 14 : 10;
   const float straight_fuzzy_value = current_air ? 56.0f : 84.0f;
-  const int max_sign_changes = current_air ? 3 : 1;
+  const int max_sign_changes = current_air ? 2 : 1;
+  const int min_ticks_since_last_flip = current_air ? 3 : 2;
 
-  float yaw_sum = 0.0f;
-  int yaw_ticks = 0;
-  int valid_pairs = 0;
-  int sign_changes = 0;
-  int last_sign = 0;
+  float streak_yaw_sum = 0.0f;
+  int streak_yaw_ticks = 0;
+  int streak_pairs = 0;
+  int streak_sign = 0;
+  int sign_changes_seen = 0;
+  int ticks_since_last_flip = 0;
+  bool flipped_too_recently = false;
 
   const int sample_limit = std::min(history.sample_count, wanted_samples);
   for (int index = 1; index < sample_limit; ++index) {
     const auto& newer = history.samples[index - 1];
     const auto& older = history.samples[index];
     if (newer.on_ground != older.on_ground) {
-      continue;
+      break;
     }
 
     const float newer_speed = local_prediction_velocity_2d_length(newer.velocity);
     const float older_speed = local_prediction_velocity_2d_length(older.velocity);
     if (newer_speed < 40.0f || older_speed < 40.0f) {
-      continue;
+      break;
     }
 
     float delta_time = newer.sim_time - older.sim_time;
@@ -638,43 +652,71 @@ inline local_prediction_strafe_estimate local_prediction_estimate_strafe(Player*
       local_prediction_vector_yaw(newer.velocity) - local_prediction_vector_yaw(older.velocity));
     const float yaw_per_tick = yaw_delta / static_cast<float>(tick_delta);
     if (std::fabs(yaw_per_tick) > 45.0f) {
-      continue;
+      break;
     }
 
     const bool straight = std::fabs(yaw_delta) * newer_speed * static_cast<float>(tick_delta) < straight_fuzzy_value;
     if (straight) {
+      // Treat straight motion as a flip in counting -- it breaks the strafe streak.
+      ++sign_changes_seen;
+      if (sign_changes_seen > max_sign_changes) {
+        break;
+      }
+      if (streak_sign == 0 && ticks_since_last_flip < min_ticks_since_last_flip) {
+        flipped_too_recently = true;
+      }
+      streak_sign = 0;
       continue;
     }
 
-    const int sign = yaw_per_tick > 0.0f ? 1 : -1;
-    if (last_sign != 0 && sign != last_sign) {
-      ++sign_changes;
-      if (sign_changes > max_sign_changes) {
-        break;
+    const int pair_sign = yaw_per_tick > 0.0f ? 1 : -1;
+    if (streak_sign != 0 && pair_sign != streak_sign) {
+      if (ticks_since_last_flip < min_ticks_since_last_flip) {
+        flipped_too_recently = true;
       }
+      break;
     }
 
-    last_sign = sign;
-    yaw_sum += yaw_per_tick * static_cast<float>(tick_delta);
-    yaw_ticks += tick_delta;
-    ++valid_pairs;
+    streak_sign = pair_sign;
+    streak_yaw_sum += yaw_per_tick * static_cast<float>(tick_delta);
+    streak_yaw_ticks += tick_delta;
+    ticks_since_last_flip += tick_delta;
+    ++streak_pairs;
   }
 
-  if (valid_pairs < 3 || yaw_ticks <= 0) {
+  if (streak_pairs < 3 || streak_yaw_ticks <= 0 || flipped_too_recently) {
     return estimate;
   }
 
-  estimate.yaw_step = yaw_sum / static_cast<float>(yaw_ticks);
-  estimate.confidence = std::clamp((static_cast<float>(valid_pairs) / static_cast<float>(std::max(3, sample_limit - 1))) * 100.0f, 0.0f, 100.0f);
+  estimate.yaw_step = streak_yaw_sum / static_cast<float>(streak_yaw_ticks);
+  estimate.confidence = std::clamp(
+    (static_cast<float>(streak_pairs) / static_cast<float>(std::max(3, sample_limit - 1))) * 100.0f,
+    0.0f,
+    100.0f);
+
   float required_confidence = std::clamp(config.aimbot.projectile_strafe_confidence, 0.0f, 100.0f);
   if (current_air) {
     required_confidence = std::max(required_confidence, 58.0f);
   }
   if (current_speed > 700.0f) {
-    required_confidence = std::max(required_confidence, current_air ? 70.0f : 70.0f);
+    required_confidence = std::max(required_confidence, 70.0f);
   }
   if (current_speed > 1100.0f) {
     required_confidence = std::max(required_confidence, current_air ? 80.0f : 88.0f);
+  }
+
+  if (entity_list != nullptr) {
+    if (Player* localplayer = entity_list->get_localplayer(); localplayer != nullptr) {
+      const Vec3 to_target = player->get_origin() - localplayer->get_origin();
+      const float distance = std::sqrt(
+        (to_target.x * to_target.x) +
+        (to_target.y * to_target.y) +
+        (to_target.z * to_target.z));
+      if (distance > 800.0f) {
+        const float t = std::clamp((distance - 800.0f) / (2200.0f - 800.0f), 0.0f, 1.0f);
+        required_confidence = std::max(required_confidence, 55.0f + (t * 35.0f));
+      }
+    }
   }
 
   if (current_air && current_speed > 650.0f) {
@@ -1266,11 +1308,22 @@ inline Vec3 local_prediction_player_path_seed_velocity(Player* player) {
     return Vec3{};
   }
 
+  const bool is_local = entity_list != nullptr && player == entity_list->get_localplayer();
+  if (is_local) {
+    return current_velocity;
+  }
+
+  const Vec3 averaged = local_prediction_estimate_entity_velocity(player);
+  const float averaged_speed = local_prediction_velocity_2d_length(averaged);
+  if (averaged_speed > 8.0f || std::fabs(averaged.z) > 8.0f) {
+    return averaged;
+  }
+
   if (current_speed > 1.0f || std::fabs(current_velocity.z) > 1.0f) {
     return current_velocity;
   }
 
-  return local_prediction_estimate_entity_velocity(player);
+  return averaged;
 }
 
 inline LocalPredictionEntityPath local_prediction_build_player_path_client_sim(Player* player,
@@ -1718,7 +1771,9 @@ inline LocalPredictionProjectileParameters local_prediction_projectile_parameter
     params.max_time = 6.0f;
     break;
   case Soldier_m_TheDirectHit:
-    params.speed = projectile_speed(3000.0f);
+    // Direct Hit base is the same 1100 as other rocket launchers; the 1.8x speed
+    // comes from the mult_projectile_speed attribute applied by projectile_speed.
+    params.speed = projectile_speed(1100.0f);
     params.gravity = 0.0f;
     params.max_time = 4.0f;
     break;
@@ -1782,8 +1837,8 @@ inline LocalPredictionProjectileParameters local_prediction_projectile_parameter
   case Pyro_s_TheDetonator:
   case Pyro_s_TheScorchShot:
   case Pyro_s_FestiveFlareGun:
-    params.speed = weapon->get_def_id() == Pyro_s_TheScorchShot ? 2000.0f : projectile_speed(2000.0f);
-    params.gravity = (weapon->get_def_id() == Pyro_s_TheScorchShot ? 0.3f : 0.3f) * gravity_scale * 800.0f;
+    params.speed = projectile_speed(2000.0f);
+    params.gravity = 0.3f * gravity_scale * 800.0f;
     params.max_time = 1.8f;
     break;
   case Pyro_s_TheManmelter:
@@ -1796,24 +1851,29 @@ inline LocalPredictionProjectileParameters local_prediction_projectile_parameter
   case Demoman_m_TheLochnLoad:
   case Demoman_m_TheLooseCannon:
   case Demoman_m_FestiveGrenadeLauncher:
-  case Demoman_m_TheIronBomber:
+  case Demoman_m_TheIronBomber: {
     params.speed = projectile_range_speed(1200.0f);
     params.gravity = gravity_scale * 800.0f;
+    constexpr float grenade_check_interval = 0.195f;
+    float lifetime = 0.0f;
     if (weapon->get_def_id() == Demoman_m_TheLooseCannon) {
       const float mortar_time = attribute_value(0.0f, "grenade_launcher_mortar_mode");
       if (mortar_time > 0.0f) {
         const float detonate_time = weapon->get_detonate_time();
-        const float remaining_time = detonate_time > 0.0f && global_vars != nullptr
+        lifetime = detonate_time > 0.0f && global_vars != nullptr
           ? detonate_time - global_vars->curtime
           : mortar_time;
-        params.max_time = std::clamp(remaining_time, static_cast<float>(TICK_INTERVAL), mortar_time);
+        lifetime = std::clamp(lifetime, static_cast<float>(TICK_INTERVAL), mortar_time);
       } else {
-        params.max_time = 2.0f;
+        lifetime = attribute_value(2.0f, "fuse_mult");
       }
     } else {
-      params.max_time = weapon->get_def_id() == Demoman_m_TheIronBomber ? 1.4f : 2.0f;
+      lifetime = attribute_value(2.0f, "fuse_mult");
     }
+    lifetime = std::ceil(lifetime / grenade_check_interval) * grenade_check_interval;
+    params.max_time = std::max(lifetime, static_cast<float>(TICK_INTERVAL));
     break;
+  }
   case Scout_s_MadMilk:
   case Scout_s_MutatedMilk:
   case Sniper_s_Jarate:
@@ -2013,7 +2073,7 @@ inline float projectile_sim_drag_for_weapon(Weapon* weapon, float speed) {
 
 inline Vec3 projectile_sim_hull_for_weapon(Weapon* weapon) {
   if (weapon == nullptr) {
-    return Vec3{};
+    return Vec3{2.0f, 2.0f, 2.0f};
   }
 
   switch (weapon->get_def_id()) {
@@ -2029,19 +2089,29 @@ inline Vec3 projectile_sim_hull_for_weapon(Weapon* weapon) {
   case Soldier_m_TheBeggarsBazooka:
   case Soldier_m_FestiveBlackBox:
   case Soldier_m_TheAirStrike:
+    return Vec3{0.0f, 0.0f, 0.0f};
+  case Soldier_s_TheRighteousBison:
+  case Engi_m_ThePomson6000:
+  case Pyro_m_DragonsFury:
     return Vec3{1.0f, 1.0f, 1.0f};
   case Demoman_m_GrenadeLauncher:
   case Demoman_m_GrenadeLauncherR:
   case Demoman_m_TheLochnLoad:
-  case Demoman_m_TheLooseCannon:
   case Demoman_m_FestiveGrenadeLauncher:
-  case Demoman_m_TheIronBomber:
+  case Demoman_m_TheIronBomber: {
+    const bool no_spin = attribute_manager != nullptr &&
+      attribute_manager->attrib_hook_value(0.0f, "grenade_no_spin", weapon->to_entity()) != 0.0f;
+    const float side = no_spin ? 4.0f : 5.0f;
+    return Vec3{side, side, side};
+  }
+  case Demoman_m_TheLooseCannon:
+    return Vec3{6.0f, 6.0f, 6.0f};
   case Demoman_s_StickybombLauncher:
   case Demoman_s_StickybombLauncherR:
   case Demoman_s_FestiveStickybombLauncher:
   case Demoman_s_TheScottishResistance:
   case Demoman_s_TheQuickiebombLauncher:
-    return Vec3{6.0f, 6.0f, 6.0f};
+    return Vec3{5.0f, 5.0f, 5.0f};
   case Scout_s_MadMilk:
   case Scout_s_MutatedMilk:
   case Sniper_s_Jarate:
@@ -2051,10 +2121,6 @@ inline Vec3 projectile_sim_hull_for_weapon(Weapon* weapon) {
   case Scout_s_TheFlyingGuillotine:
   case Scout_s_TheFlyingGuillotineG:
     return Vec3{1.0f, 1.0f, 10.0f};
-  case Soldier_s_TheRighteousBison:
-  case Engi_m_ThePomson6000:
-  case Pyro_m_DragonsFury:
-    return Vec3{1.0f, 1.0f, 1.0f};
   case Medic_m_CrusadersCrossbow:
   case Medic_m_FestiveCrusadersCrossbow:
     return Vec3{3.0f, 3.0f, 3.0f};
@@ -2067,8 +2133,14 @@ inline Vec3 projectile_sim_hull_for_weapon(Weapon* weapon) {
   case Sniper_m_FestiveHuntsman:
   case Sniper_m_TheFortifiedCompound:
     return Vec3{1.0f, 1.0f, 1.0f};
+  case Pyro_s_TheFlareGun:
+  case Pyro_s_TheDetonator:
+  case Pyro_s_TheScorchShot:
+  case Pyro_s_FestiveFlareGun:
+  case Pyro_s_TheManmelter:
+    return Vec3{0.0f, 0.0f, 0.0f};
   default:
-    return Vec3{};
+    return Vec3{2.0f, 2.0f, 2.0f};
   }
 }
 
@@ -2108,9 +2180,6 @@ inline projectile_sim_profile projectile_sim_profile_for_weapon(Player* localpla
     profile.offset.y *= -1.0f;
   }
   profile.hull = projectile_sim_hull_for_weapon(weapon);
-  if (local_prediction_vec3_is_zero(profile.hull)) {
-    profile.hull = Vec3{2.0f, 2.0f, 2.0f};
-  }
   profile.hull_trace = profile.hull.x > 0.0f || profile.hull.y > 0.0f || profile.hull.z > 0.0f;
   profile.lifetime = profile.params.max_time;
   profile.initial_lift = projectile_sim_is_grenade_like_weapon(weapon) ? 200.0f : 0.0f;
@@ -2156,6 +2225,27 @@ inline projectile_sim_launch projectile_sim_build_launch_from_angles(Player* loc
     muzzle_pos += (forward * profile.offset.x) + (right * profile.offset.y) + (up * profile.offset.z);
   }
 
+  if (profile.spawn_trace_mode != projectile_sim_spawn_trace_mode::none) {
+    trace_t spawn_trace{};
+    const bool use_hull = profile.spawn_trace_mode == projectile_sim_spawn_trace_mode::hull;
+    const bool spawn_traced = projectile_trace_ray(
+      shoot_pos,
+      muzzle_pos,
+      use_hull ? &profile.spawn_trace_mins : nullptr,
+      use_hull ? &profile.spawn_trace_maxs : nullptr,
+      projectile_trace_contract::spawn,
+      localplayer->to_entity(),
+      -1,
+      &spawn_trace);
+    if (!spawn_traced) {
+      return {};
+    }
+    if (spawn_trace.start_solid || spawn_trace.all_solid) {
+      return {};
+    }
+    muzzle_pos = spawn_trace.endpos;
+  }
+
   Vec3 launch_direction{};
   if (profile.fire_setup_mode == projectile_sim_fire_setup_mode::traced_forward) {
     Vec3 end_pos = shoot_pos + (forward * 2000.0f);
@@ -2176,40 +2266,6 @@ inline projectile_sim_launch projectile_sim_build_launch_from_angles(Player* loc
     launch_direction = local_prediction_normalize(end_pos - muzzle_pos);
   } else {
     launch_direction = local_prediction_normalize(local_prediction_angles_to_direction(angles));
-  }
-
-  if (profile.spawn_trace_mode != projectile_sim_spawn_trace_mode::none) {
-    trace_t spawn_trace{};
-    bool spawn_traced = false;
-    if (profile.spawn_trace_mode == projectile_sim_spawn_trace_mode::hull) {
-      spawn_traced = projectile_trace_ray(
-        shoot_pos,
-        muzzle_pos,
-        &profile.spawn_trace_mins,
-        &profile.spawn_trace_maxs,
-        projectile_trace_contract::spawn,
-        localplayer->to_entity(),
-        -1,
-        &spawn_trace);
-    } else {
-      spawn_traced = projectile_trace_ray(
-        shoot_pos,
-        muzzle_pos,
-        nullptr,
-        nullptr,
-        projectile_trace_contract::spawn,
-        localplayer->to_entity(),
-        -1,
-        &spawn_trace);
-    }
-
-    if (!spawn_traced) {
-      return {};
-    }
-    if (spawn_trace.start_solid || spawn_trace.all_solid) {
-      return {};
-    }
-    muzzle_pos = spawn_trace.endpos;
   }
 
   launch.direction = launch_direction;

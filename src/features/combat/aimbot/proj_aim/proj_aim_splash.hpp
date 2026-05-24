@@ -70,18 +70,21 @@ inline void proj_aim_splash_sample_offsets(const Vec3& local_origin,
   const size_t max_samples = static_cast<size_t>(std::clamp(sample_count, 4, 64));
 
   offsets->clear();
-  offsets->reserve(max_samples + 6);
+  offsets->reserve(max_samples + 7);
   offsets->emplace_back(Vec3{to_local.x * outer, to_local.y * outer, -outer * 0.22f});
   offsets->emplace_back(Vec3{0.0f, 0.0f, -outer});
   offsets->emplace_back(Vec3{outer * 0.38f, 0.0f, -outer * 0.72f});
   offsets->emplace_back(Vec3{-outer * 0.38f, 0.0f, -outer * 0.72f});
+  offsets->emplace_back(Vec3{to_local.x * outer * 0.55f, to_local.y * outer * 0.55f, -outer * 0.85f});
   offsets->emplace_back(Vec3{0.0f, 0.0f, outer});
   offsets->emplace_back(Vec3{to_local.x * outer, to_local.y * outer, 0.0f});
 
+  const bool will_filter = !allow_wall_splash || !allow_seam_shot;
+  const size_t iteration_budget = will_filter ? max_samples * 3 : max_samples;
   constexpr float golden_angle = 2.39996323f;
-  for (size_t index = 0; offsets->size() < max_samples && index < max_samples * 3; ++index) {
+  for (size_t index = 0; offsets->size() < max_samples && index < iteration_budget; ++index) {
     const float t = static_cast<float>(index) + 0.5f;
-    const float y = 1.0f - (2.0f * t / static_cast<float>(max_samples * 3));
+    const float y = 1.0f - (2.0f * t / static_cast<float>(iteration_budget));
     const float radial = std::sqrt(std::max(0.0f, 1.0f - (y * y)));
     const float theta = golden_angle * static_cast<float>(index);
     Vec3 offset{

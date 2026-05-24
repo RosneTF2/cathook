@@ -8,21 +8,30 @@ V  o o  V  file: src/features/combat/aimbot/melee_aim.hpp
   |     \     )
   || (___\====
 */
-
 #ifndef MELEE_AIM_HPP
 #define MELEE_AIM_HPP
 
+#include <array>
+#include <cmath>
+#include <vector>
+
 #include "aim_utils.hpp"
+#include "core/entity_cache.hpp"
+#include "features/combat/backtrack/backtrack.hpp"
 
-inline Vec3 melee_aim_offset_bounds(const Vec3& bounds, float offset) {
-  return Vec3{bounds.x + offset, bounds.y + offset, bounds.z + offset};
-}
+namespace melee_aim_detail {
 
-inline bool melee_aim_is_knife(Weapon* weapon) {
+constexpr float k_player_origin_compression = 0.125f;
+constexpr float k_swing_time_cap = 0.35f;
+constexpr float k_behind_dot_required = 0.0031f;
+constexpr float k_facing_dot_required = 0.5f;
+constexpr float k_facestab_dot_min = -0.3f;
+constexpr float k_planar_min_distance = 0.30f;
+
+inline bool is_knife(Weapon* weapon) {
   if (weapon == nullptr) {
     return false;
   }
-
   switch (weapon->get_def_id()) {
   case Spy_t_Knife:
   case Spy_t_KnifeR:
@@ -48,100 +57,152 @@ inline bool melee_aim_is_knife(Weapon* weapon) {
   }
 }
 
-inline float melee_aim_impact_time(Player* localplayer, Weapon* weapon) {
-  if (weapon == nullptr) {
+inline float compute_impact_time(Player* localplayer, Weapon* weapon) {
+  if (weapon == nullptr || is_knife(weapon)) {
     return 0.0f;
   }
-
-  if (melee_aim_is_knife(weapon)) {
-    return 0.0f;
-  }
-
   const float current_time = global_vars != nullptr
     ? global_vars->curtime
     : (localplayer != nullptr ? localplayer->get_tickbase() * static_cast<float>(TICK_INTERVAL) : 0.0f);
   const float smack_time = weapon->get_smack_time();
   if (smack_time > current_time) {
-    return std::clamp(smack_time - current_time, 0.0f, 0.35f);
+    return std::clamp(smack_time - current_time, 0.0f, k_swing_time_cap);
   }
-
-  return std::clamp(weapon->get_smack_delay(), 0.0f, 0.35f);
+  return std::clamp(weapon->get_smack_delay(), 0.0f, k_swing_time_cap);
 }
 
-inline Vec3 melee_aim_player_center(Player* player, const Vec3& origin) {
-  if (player == nullptr) {
-    return origin;
+inline float effective_swing_time(Player* localplayer, Weapon* weapon) {
+  float impact = compute_impact_time(localplayer, weapon);
+  if (!config.aimbot.melee_swing_prediction) {
+    impact = 0.0f;
   }
-
-  const Vec3 mins = player->get_player_mins(player->is_ducking());
-  const Vec3 maxs = player->get_player_maxs(player->is_ducking());
-  return origin + Vec3{0.0f, 0.0f, mins.z + ((maxs.z - mins.z) * 0.5f)};
+  const float extra = static_cast<float>(std::max(0, config.aimbot.melee_swing_extra_ticks)) *
+    static_cast<float>(TICK_INTERVAL);
+  return std::clamp(impact + extra, 0.0f, k_swing_time_cap + 0.2f);
 }
 
-inline Vec3 melee_aim_local_swing_start(Player* localplayer, float impact_time) {
-  if (localplayer == nullptr || impact_time <= 0.0001f) {
-    return localplayer != nullptr ? localplayer->get_shoot_pos() : Vec3{};
+inline Vec3 predict_local_swing_start(Player* localplayer, float swing_time) {
+  if (localplayer == nullptr) {
+    return Vec3{};
   }
-
-  LocalPredictionEntityPath local_path = local_prediction_predict_entity_path(localplayer, impact_time, false);
-  if (!local_path.valid || local_path.positions.empty()) {
+  if (swing_time < 0.001f) {
     return localplayer->get_shoot_pos();
   }
-
-  return local_path.positions.back() + localplayer->get_view_offset();
+  LocalPredictionEntityPath path = local_prediction_predict_entity_path(localplayer, swing_time, true);
+  if (!path.valid || path.positions.empty()) {
+    return localplayer->get_shoot_pos();
+  }
+  return path.positions.back() + localplayer->get_view_offset();
 }
 
-inline bool melee_aim_segment_reaches_target(Player* target,
-  const Vec3& target_origin,
-  const Vec3& start,
-  const Vec3& end,
-  float melee_hull,
-  float* enter_fraction_out = nullptr) {
-  if (target == nullptr || melee_hull < 0.0f) {
+inline Vec3 clamp_point_to_aabb(const Vec3& p, const Vec3& mins, const Vec3& maxs) {
+  return Vec3{
+    std::clamp(p.x, mins.x, maxs.x),
+    std::clamp(p.y, mins.y, maxs.y),
+    std::clamp(p.z, mins.z, maxs.z)
+  };
+}
+
+inline Vec3 forward_xy(const Vec3& angles) {
+  Vec3 f = local_prediction_angles_to_direction(angles);
+  f.z = 0.0f;
+  const float len = std::sqrt((f.x * f.x) + (f.y * f.y));
+  if (len < 0.0001f) {
+    return Vec3{1.0f, 0.0f, 0.0f};
+  }
+  return f * (1.0f / len);
+}
+
+inline bool razorback_blocks_backstab(Player* target) {
+  if (target == nullptr || !config.aimbot.melee_ignore_razorback) {
+    return false;
+  }
+  const auto& wearables = entity_cache_entities(class_id::WEARABLE_RAZORBACK);
+  for (Entity* wearable : wearables) {
+    if (wearable == nullptr) {
+      continue;
+    }
+    if (wearable->get_owner_entity() == target) {
+      return true;
+    }
+  }
+  return false;
+}
+
+inline bool backstab_geometry_ok(Player* target,
+  const Vec3& predicted_target_origin,
+  const Vec3& eye_pos,
+  const Vec3& aim_angles) {
+  if (target == nullptr) {
     return false;
   }
 
-  constexpr float player_origin_compression = 0.125f;
-  const Vec3 hull{melee_hull, melee_hull, melee_hull};
-  const Vec3 mins = melee_aim_offset_bounds(target->get_player_mins(target->is_ducking()), player_origin_compression);
-  const Vec3 maxs = melee_aim_offset_bounds(target->get_player_maxs(target->is_ducking()), -player_origin_compression);
-  const Vec3 target_mins = mins + target_origin - hull;
-  const Vec3 target_maxs = maxs + target_origin + hull;
-  return aimbot_segment_aabb_enter_fraction(start, end, target_mins, target_maxs, enter_fraction_out);
+  Vec3 to_target = predicted_target_origin - eye_pos;
+  to_target.z = 0.0f;
+  const float dist = std::sqrt((to_target.x * to_target.x) + (to_target.y * to_target.y));
+  if (dist < k_planar_min_distance) {
+    return false;
+  }
+  to_target = to_target * (1.0f / dist);
+
+  const float comp_dist = k_player_origin_compression * 0.5f;
+  const float extra = 2.0f * comp_dist / dist;
+  const float pos_vs_target_min = k_behind_dot_required + extra;
+  const float pos_vs_owner_min = k_facing_dot_required + extra;
+  const float view_dot_min = k_facestab_dot_min + k_behind_dot_required;
+
+  const Vec3 owner_forward = forward_xy(aim_angles);
+  const Vec3 target_eye = target->get_eye_angles();
+  const Vec3 target_forward = forward_xy(Vec3{0.0f, target_eye.y, 0.0f});
+
+  const float pos_vs_target = (to_target.x * target_forward.x) + (to_target.y * target_forward.y);
+  const float pos_vs_owner = (to_target.x * owner_forward.x) + (to_target.y * owner_forward.y);
+  const float view_dot = (target_forward.x * owner_forward.x) + (target_forward.y * owner_forward.y);
+
+  return pos_vs_target > pos_vs_target_min &&
+    pos_vs_owner > pos_vs_owner_min &&
+    view_dot > view_dot_min;
 }
 
-inline bool melee_aim_trace_clear_to_target(Player* localplayer,
-  Player* target,
+inline bool trace_hits_target(Player* localplayer,
+  Entity* target,
   const Vec3& start,
   const Vec3& end,
-  const Vec3& hull_mins,
-  const Vec3& hull_maxs,
-  float target_enter_fraction,
-  bool* hit_target_out = nullptr) {
-  return aimbot_melee_trace_clear_to_entity(
-    localplayer,
-    target,
-    start,
-    end,
-    hull_mins,
-    hull_maxs,
-    target_enter_fraction,
-    hit_target_out);
+  float hull) {
+  if (engine_trace == nullptr) {
+    return false;
+  }
+
+  Vec3 s = start;
+  Vec3 e = end;
+  Vec3 hull_mins = (hull > 0.0001f) ? Vec3{-hull, -hull, -hull} : Vec3{};
+  Vec3 hull_maxs = (hull > 0.0001f) ? Vec3{hull, hull, hull} : Vec3{};
+
+  ray_t ray = engine_trace->init_ray(&s, &e, &hull_mins, &hull_maxs);
+  trace_filter filter{};
+  engine_trace->init_trace_filter(&filter, localplayer);
+  trace_t trace{};
+  engine_trace->trace_ray(&ray, MASK_SOLID, &filter, &trace);
+
+  if (trace.all_solid || trace.start_solid) {
+    return false;
+  }
+  return trace.entity == target;
 }
 
-inline bool melee_aim_trace_candidate(Player* localplayer,
+inline bool validate_reach(Player* localplayer,
   Weapon* weapon,
-  Player* target,
-  const Vec3& target_origin,
+  Entity* target,
+  const Vec3& predicted_target_origin,
   const Vec3& swing_start,
   const Vec3& aim_angles) {
   if (localplayer == nullptr || weapon == nullptr || target == nullptr || engine_trace == nullptr) {
     return false;
   }
 
-  const float melee_range = aimbot_get_melee_range(localplayer, weapon, target);
-  const float melee_hull = aimbot_get_melee_hull(localplayer, weapon, target);
-  if (melee_range <= 0.0f || melee_hull < 0.0f) {
+  const float range = aimbot_get_melee_range(localplayer, weapon, target->get_class_id() == class_id::PLAYER ? static_cast<Player*>(target) : nullptr);
+  const float hull = aimbot_get_melee_hull(localplayer, weapon, target->get_class_id() == class_id::PLAYER ? static_cast<Player*>(target) : nullptr);
+  if (range <= 0.0f || hull < 0.0f) {
     return false;
   }
 
@@ -150,42 +211,145 @@ inline bool melee_aim_trace_candidate(Player* localplayer,
     return false;
   }
 
-  const Vec3 end = swing_start + (forward * melee_range);
-  Vec3 zero_hull{};
-  float line_enter_fraction = 1.0f;
-  const bool line_reaches_target = melee_aim_segment_reaches_target(
-    target,
-    target_origin,
-    swing_start,
-    end,
-    0.0f,
-    &line_enter_fraction);
-  bool line_hit_target = false;
-  const bool line_clear_to_target = melee_aim_trace_clear_to_target(
-    localplayer,
-    target,
-    swing_start,
-    end,
-    zero_hull,
-    zero_hull,
-    line_reaches_target ? line_enter_fraction : 1.0f,
-    &line_hit_target);
-  if (line_hit_target || (line_reaches_target && line_clear_to_target)) {
+  const Vec3 end = swing_start + (forward * range);
+
+  // A quick AABB-pre-check so we don't bother tracing toward a target that's not on the segment.
+  if (target->get_class_id() == class_id::PLAYER) {
+    Player* tp = static_cast<Player*>(target);
+    const Vec3 mins = tp->get_player_mins(tp->is_ducking());
+    const Vec3 maxs = tp->get_player_maxs(tp->is_ducking());
+    const Vec3 t_mins = mins + predicted_target_origin - Vec3{hull, hull, hull};
+    const Vec3 t_maxs = maxs + predicted_target_origin + Vec3{hull, hull, hull};
+    if (!aimbot_segment_intersects_aabb(swing_start, end, t_mins, t_maxs)) {
+      return false;
+    }
+  }
+
+  if (trace_hits_target(localplayer, target, swing_start, end, 0.0f)) {
     return true;
   }
+  return trace_hits_target(localplayer, target, swing_start, end, hull);
+}
 
-  if (!line_clear_to_target) {
-    return false;
+struct swing_sample {
+  bool valid = false;
+  Vec3 origin{};
+  Vec3 mins{};
+  Vec3 maxs{};
+  float at_time = 0.0f;
+  int tick_count = 0;
+};
+
+inline std::vector<swing_sample> build_target_samples(Player* target, float swing_time) {
+  std::vector<swing_sample> out;
+  if (target == nullptr) {
+    return out;
   }
 
-  float hull_enter_fraction = 1.0f;
-  if (!melee_aim_segment_reaches_target(target, target_origin, swing_start, end, melee_hull, &hull_enter_fraction)) {
-    return false;
+  const float effective_horizon = std::max(swing_time, static_cast<float>(TICK_INTERVAL));
+  LocalPredictionEntityPath path = local_prediction_predict_entity_path(target, effective_horizon, false, true);
+  if (!path.valid || path.positions.empty()) {
+    return out;
   }
 
-  Vec3 hull_mins{-melee_hull, -melee_hull, -melee_hull};
-  Vec3 hull_maxs{melee_hull, melee_hull, melee_hull};
-  return melee_aim_trace_clear_to_target(localplayer, target, swing_start, end, hull_mins, hull_maxs, hull_enter_fraction);
+  const Vec3 mins = target->get_player_mins(target->is_ducking());
+  const Vec3 maxs = target->get_player_maxs(target->is_ducking());
+
+  const size_t last = path.positions.size() - 1;
+  size_t indices[3] = {last, last / 2, 0};
+  for (size_t idx : indices) {
+    if (idx >= path.positions.size()) {
+      continue;
+    }
+    bool dup = false;
+    for (const swing_sample& existing : out) {
+      if (aimbot_distance_squared(existing.origin, path.positions[idx]) < 0.01f) {
+        dup = true;
+        break;
+      }
+    }
+    if (dup) {
+      continue;
+    }
+
+    swing_sample s;
+    s.valid = true;
+    s.origin = path.positions[idx];
+    s.mins = mins;
+    s.maxs = maxs;
+    s.at_time = path.start_time + (static_cast<float>(idx) * path.time_step);
+    s.tick_count = local_prediction_time_to_ticks(target->get_simulation_time() + s.at_time + backtrack::interpolation_time());
+    out.push_back(s);
+  }
+
+  return out;
+}
+
+struct attempt_result {
+  bool valid = false;
+  Vec3 aim_position{};
+  Vec3 aim_angles{};
+  float fov = FLT_MAX;
+  float distance = FLT_MAX;
+};
+
+inline attempt_result try_aim_point(Player* localplayer,
+  Weapon* weapon,
+  Player* target,
+  const swing_sample& sample,
+  const Vec3& aim_position,
+  const Vec3& swing_start,
+  const Vec3& original_view_angles,
+  bool require_backstab) {
+  attempt_result r{};
+  if (!aimbot_vec3_is_finite(aim_position)) {
+    return r;
+  }
+
+  const Vec3 angles = aimbot_calculate_angles_to_position(swing_start, aim_position);
+  if (!validate_reach(localplayer, weapon, target, sample.origin, swing_start, angles)) {
+    return r;
+  }
+  if (require_backstab && !backstab_geometry_ok(target, sample.origin, swing_start, angles)) {
+    return r;
+  }
+
+  r.valid = true;
+  r.aim_position = aim_position;
+  r.aim_angles = angles;
+  r.fov = aimbot_calculate_fov(angles, original_view_angles);
+  r.distance = distance_3d(swing_start, aim_position);
+  return r;
+}
+
+}
+
+inline float melee_aim_impact_time(Player* localplayer, Weapon* weapon) {
+  return melee_aim_detail::compute_impact_time(localplayer, weapon);
+}
+
+inline Vec3 melee_aim_local_swing_start(Player* localplayer, float swing_time) {
+  return melee_aim_detail::predict_local_swing_start(localplayer, swing_time);
+}
+
+inline bool melee_aim_trace_candidate(Player* localplayer,
+  Weapon* weapon,
+  Player* target,
+  const Vec3& target_origin,
+  const Vec3& swing_start,
+  const Vec3& aim_angles) {
+  if (!melee_aim_detail::validate_reach(localplayer, weapon, target, target_origin, swing_start, aim_angles)) {
+    return false;
+  }
+  if (melee_aim_detail::is_knife(weapon) && config.aimbot.melee_auto_backstab) {
+    if (melee_aim_detail::razorback_blocks_backstab(target)) {
+      return false;
+    }
+    if (!melee_aim_detail::backstab_geometry_ok(target, target_origin, swing_start, aim_angles)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 inline bool melee_aim_trace_candidate(Player* localplayer,
@@ -196,7 +360,6 @@ inline bool melee_aim_trace_candidate(Player* localplayer,
   if (localplayer == nullptr) {
     return false;
   }
-
   return melee_aim_trace_candidate(localplayer, weapon, target, target_origin, localplayer->get_shoot_pos(), aim_angles);
 }
 
@@ -206,83 +369,111 @@ inline aimbot_candidate melee_aim_find_candidate(Player* localplayer,
   user_cmd*,
   const Vec3& original_view_angles) {
   aimbot_candidate candidate{};
-  if (localplayer == nullptr || weapon == nullptr || player == nullptr) return candidate;
-
-  const float impact_time = melee_aim_impact_time(localplayer, weapon);
-  const float prediction_time = std::max(impact_time, static_cast<float>(TICK_INTERVAL));
-  LocalPredictionEntityPath target_path = local_prediction_predict_entity_path(player, prediction_time, false, true);
-  if (!target_path.valid || target_path.positions.empty()) {
+  if (localplayer == nullptr || weapon == nullptr || player == nullptr) {
     return candidate;
   }
 
-  aimbot_point point = aimbot_find_best_point(
+  const bool knife = melee_aim_detail::is_knife(weapon);
+  const bool need_backstab = knife && config.aimbot.melee_auto_backstab;
+  if (need_backstab && melee_aim_detail::razorback_blocks_backstab(player)) {
+    return candidate;
+  }
+
+  const float swing_time = melee_aim_detail::effective_swing_time(localplayer, weapon);
+  const Vec3 swing_start = melee_aim_detail::predict_local_swing_start(localplayer, swing_time);
+  if (!aimbot_vec3_is_finite(swing_start)) {
+    return candidate;
+  }
+
+  std::vector<melee_aim_detail::swing_sample> samples = melee_aim_detail::build_target_samples(player, swing_time);
+  if (samples.empty()) {
+    melee_aim_detail::swing_sample fallback;
+    fallback.valid = true;
+    fallback.origin = player->get_origin();
+    fallback.mins = player->get_player_mins(player->is_ducking());
+    fallback.maxs = player->get_player_maxs(player->is_ducking());
+    fallback.at_time = 0.0f;
+    fallback.tick_count = local_prediction_time_to_ticks(player->get_simulation_time() + backtrack::interpolation_time());
+    samples.push_back(fallback);
+  }
+
+  aimbot_point hitbox_point = aimbot_find_best_point(
     localplayer,
     player,
     weapon,
     original_view_angles,
     config.aimbot.melee_hitboxes,
     false);
-  if (!point.valid) {
-    return candidate;
+
+  melee_aim_detail::attempt_result best;
+  const melee_aim_detail::swing_sample* best_sample = nullptr;
+
+  for (const auto& sample : samples) {
+    const Vec3 abs_mins = sample.origin + sample.mins;
+    const Vec3 abs_maxs = sample.origin + sample.maxs;
+
+    std::array<Vec3, 4> candidates{};
+    int candidate_count = 0;
+
+    if (need_backstab) {
+      // For backstab: aim at the origin column at our eye height so the trace clears
+      // and we end up planted right behind the spy's target.
+      const float z = std::clamp(swing_start.z, abs_mins.z, abs_maxs.z);
+      candidates[candidate_count++] = Vec3{sample.origin.x, sample.origin.y, z};
+    }
+
+    candidates[candidate_count++] = melee_aim_detail::clamp_point_to_aabb(swing_start, abs_mins, abs_maxs);
+
+    if (hitbox_point.valid) {
+      const Vec3 offset = hitbox_point.position - player->get_origin();
+      candidates[candidate_count++] = sample.origin + offset;
+    }
+
+    candidates[candidate_count++] = (abs_mins + abs_maxs) * 0.5f;
+
+    for (int i = 0; i < candidate_count; ++i) {
+      melee_aim_detail::attempt_result attempt = melee_aim_detail::try_aim_point(
+        localplayer,
+        weapon,
+        player,
+        sample,
+        candidates[i],
+        swing_start,
+        original_view_angles,
+        need_backstab);
+      if (!attempt.valid) {
+        continue;
+      }
+      if (!best.valid || attempt.fov < best.fov) {
+        best = attempt;
+        best_sample = &sample;
+      }
+    }
   }
 
-  Vec3 predicted_origin = target_path.positions.back();
-  Vec3 swing_start = melee_aim_local_swing_start(localplayer, impact_time);
-  const Vec3 mins = player->get_player_mins(player->is_ducking());
-  const Vec3 maxs = player->get_player_maxs(player->is_ducking());
-  Vec3 hitbox_offset = point.position - player->get_origin();
-  Vec3 target_positions[] = {
-    predicted_origin + hitbox_offset,
-    melee_aim_player_center(player, predicted_origin),
-    predicted_origin + Vec3{0.0f, 0.0f, std::clamp(swing_start.z - predicted_origin.z, mins.z, maxs.z)}
-  };
-
-  bool found_trace = false;
-  Vec3 target_position{};
-  Vec3 aim_angles{};
-  float target_fov = FLT_MAX;
-  float target_distance = FLT_MAX;
-  for (const Vec3& trace_position : target_positions) {
-    if (!aimbot_vec3_is_finite(trace_position)) {
-      continue;
-    }
-
-    const Vec3 trace_angles = aimbot_calculate_angles_to_position(swing_start, trace_position);
-    if (!melee_aim_trace_candidate(localplayer, weapon, player, predicted_origin, swing_start, trace_angles)) {
-      continue;
-    }
-
-    const float trace_fov = aimbot_calculate_fov(trace_angles, original_view_angles);
-    if (!found_trace || trace_fov < target_fov) {
-      found_trace = true;
-      target_position = trace_position;
-      aim_angles = trace_angles;
-      target_fov = trace_fov;
-      target_distance = distance_3d(swing_start, trace_position);
-    }
-  }
-
-  if (!found_trace) {
+  if (!best.valid || best_sample == nullptr) {
     return candidate;
   }
 
   candidate.entity = player;
   candidate.player = player;
   candidate.preferred = has_aimbot_preference(player);
-  candidate.bone = point.bone;
-  candidate.hitbox = point.hitbox;
-  candidate.aim_position = target_position;
-  candidate.aim_angles = aim_angles;
-  candidate.fov = target_fov;
-  candidate.distance = target_distance;
+  candidate.bone = hitbox_point.valid ? hitbox_point.bone : aimbot_default_bone(localplayer, player, weapon);
+  candidate.hitbox = hitbox_point.valid ? hitbox_point.hitbox : aim_hitbox_pelvis;
+  candidate.aim_position = best.aim_position;
+  candidate.aim_angles = best.aim_angles;
+  candidate.fov = best.fov;
+  candidate.distance = best.distance;
   candidate.health = player->get_health();
   candidate.visible = true;
   candidate.melee_has_prediction = true;
-  candidate.melee_impact_time = target_path.start_time + impact_time;
+  candidate.melee_impact_time = best_sample->at_time;
   candidate.melee_swing_start = swing_start;
-  candidate.melee_target_origin = predicted_origin;
+  candidate.melee_target_origin = best_sample->origin;
   candidate.simulation_time = player->get_simulation_time();
-  candidate.tick_count = local_prediction_time_to_ticks(candidate.simulation_time + local_prediction_interp_time());
+  candidate.tick_count = best_sample->tick_count > 0
+    ? best_sample->tick_count
+    : local_prediction_time_to_ticks(candidate.simulation_time + backtrack::interpolation_time());
   return candidate;
 }
 

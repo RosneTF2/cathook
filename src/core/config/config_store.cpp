@@ -205,6 +205,11 @@ void config_store::import_config(const Config& config)
     set_int("aimbot.hitscan_hitboxes", static_cast<int>(config.aimbot.hitscan_hitboxes));
     set_int("aimbot.melee_hitboxes", static_cast<int>(config.aimbot.melee_hitboxes));
     set_bool("aimbot.melee_walk_to_target", config.aimbot.melee_walk_to_target);
+    set_bool("aimbot.melee_swing_prediction", config.aimbot.melee_swing_prediction);
+    set_bool("aimbot.melee_auto_backstab", config.aimbot.melee_auto_backstab);
+    set_bool("aimbot.melee_account_ping", config.aimbot.melee_account_ping);
+    set_bool("aimbot.melee_ignore_razorback", config.aimbot.melee_ignore_razorback);
+    set_int("aimbot.melee_swing_extra_ticks", config.aimbot.melee_swing_extra_ticks);
     set_int("aimbot.projectile_mode", static_cast<int>(config.aimbot.projectile_mode));
     set_int("aimbot.projectile_hitboxes", static_cast<int>(config.aimbot.projectile_hitboxes));
     set_bool("aimbot.projectile_wall_splash", config.aimbot.projectile_wall_splash);
@@ -557,6 +562,14 @@ void config_store::export_config(Config& config) const
     config.aimbot.hitscan_hitboxes = static_cast<uint32_t>(get_int("aimbot.hitscan_hitboxes", static_cast<int>(config.aimbot.hitscan_hitboxes)));
     config.aimbot.melee_hitboxes = static_cast<uint32_t>(get_int("aimbot.melee_hitboxes", static_cast<int>(config.aimbot.melee_hitboxes)));
     config.aimbot.melee_walk_to_target = get_bool("aimbot.melee_walk_to_target", config.aimbot.melee_walk_to_target);
+    config.aimbot.melee_swing_prediction = get_bool("aimbot.melee_swing_prediction", config.aimbot.melee_swing_prediction);
+    config.aimbot.melee_auto_backstab = get_bool("aimbot.melee_auto_backstab", config.aimbot.melee_auto_backstab);
+    config.aimbot.melee_account_ping = get_bool("aimbot.melee_account_ping", config.aimbot.melee_account_ping);
+    config.aimbot.melee_ignore_razorback = get_bool("aimbot.melee_ignore_razorback", config.aimbot.melee_ignore_razorback);
+    config.aimbot.melee_swing_extra_ticks = std::clamp(
+        get_int("aimbot.melee_swing_extra_ticks", config.aimbot.melee_swing_extra_ticks),
+        0,
+        8);
     config.aimbot.projectile_mode = static_cast<Aim::ProjectileMode>(std::clamp(
         get_int("aimbot.projectile_mode", static_cast<int>(config.aimbot.projectile_mode)),
         0,

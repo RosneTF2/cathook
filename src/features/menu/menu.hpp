@@ -1456,6 +1456,13 @@ static void draw_aimbot_content() {
     cat_menu::checkbox("Sniper auto unscope", &config.aimbot.auto_unscope);
     cat_menu::slider_float("Auto scope threshold", &config.aimbot.auto_scope_threshold, 800.0f, 2500.0f, "%.0f HU");
   });
+  cat_menu::flow_panel("Melee", 2, 142.0f, [&]() {
+    cat_menu::checkbox("Swing prediction", &config.aimbot.melee_swing_prediction);
+    cat_menu::checkbox("Auto backstab", &config.aimbot.melee_auto_backstab);
+    cat_menu::checkbox("Account ping", &config.aimbot.melee_account_ping);
+    cat_menu::checkbox("Ignore razorback", &config.aimbot.melee_ignore_razorback);
+    cat_menu::slider_int("Swing extra ticks", &config.aimbot.melee_swing_extra_ticks, 0, 8);
+  });
   cat_menu::flow_panel("Hitscan", 2, 156.0f, [&]() {
     cat_menu::multi_select_combo("Modifiers", &config.aimbot.hitscan_modifiers, hitscan_modifier_items, hitscan_modifier_bits, IM_ARRAYSIZE(hitscan_modifier_items));
     cat_menu::slider_float("Multipoint scale", &config.aimbot.multipoint_scale, 0.0f, 100.0f, "%.0f%%");
