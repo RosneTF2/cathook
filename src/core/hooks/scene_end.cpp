@@ -9,9 +9,15 @@ V  o o  V  file: src/core/hooks/scene_end.cpp
   || (___\====
 */
 
+#include "features/automation/nographics/nographics.hpp"
+
 void (*scene_end_original)(void*, void*);
 
 void scene_end_hook(void* me, void* b8) {
+  if (nographics::should_skip_rendering_hooks()) {
+    return;
+  }
+
   scene_end_original(me, b8);
   //chams();
 }

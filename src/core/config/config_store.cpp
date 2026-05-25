@@ -209,6 +209,7 @@ void config_store::import_config(const Config& config)
     set_bool("aimbot.melee_auto_backstab", config.aimbot.melee_auto_backstab);
     set_bool("aimbot.melee_account_ping", config.aimbot.melee_account_ping);
     set_bool("aimbot.melee_ignore_razorback", config.aimbot.melee_ignore_razorback);
+    set_bool("aimbot.melee_nographics_simple_bounds", config.aimbot.melee_nographics_simple_bounds);
     set_int("aimbot.melee_swing_extra_ticks", config.aimbot.melee_swing_extra_ticks);
     set_int("aimbot.projectile_mode", static_cast<int>(config.aimbot.projectile_mode));
     set_int("aimbot.projectile_hitboxes", static_cast<int>(config.aimbot.projectile_hitboxes));
@@ -388,6 +389,9 @@ void config_store::import_config(const Config& config)
     set_float("misc.movement.auto_strafe_max_delta", config.misc.movement.auto_strafe_max_delta);
     set_bool("misc.movement.no_push", config.misc.movement.no_push);
     set_bool("misc.movement.taunt_slide", config.misc.movement.taunt_slide);
+    set_bool("misc.movement.moonwalk", config.misc.movement.moonwalk);
+    set_bool("misc.movement.moonwalk_forward", config.misc.movement.moonwalk_forward);
+    set_bool("misc.movement.moonwalk_navbot_compat", config.misc.movement.moonwalk_navbot_compat);
     set_bool("misc.exploits.bypasspure", config.misc.exploits.bypasspure);
     set_bool("misc.exploits.pure_bypass", config.misc.exploits.pure_bypass);
     set_bool("misc.exploits.cheats_bypass", config.misc.exploits.cheats_bypass);
@@ -567,6 +571,9 @@ void config_store::export_config(Config& config) const
     config.aimbot.melee_auto_backstab = get_bool("aimbot.melee_auto_backstab", config.aimbot.melee_auto_backstab);
     config.aimbot.melee_account_ping = get_bool("aimbot.melee_account_ping", config.aimbot.melee_account_ping);
     config.aimbot.melee_ignore_razorback = get_bool("aimbot.melee_ignore_razorback", config.aimbot.melee_ignore_razorback);
+    config.aimbot.melee_nographics_simple_bounds = get_bool(
+        "aimbot.melee_nographics_simple_bounds",
+        config.aimbot.melee_nographics_simple_bounds);
     config.aimbot.melee_swing_extra_ticks = std::clamp(
         get_int("aimbot.melee_swing_extra_ticks", config.aimbot.melee_swing_extra_ticks),
         0,
@@ -891,6 +898,9 @@ void config_store::export_config(Config& config) const
         180.0f);
     config.misc.movement.no_push = get_bool("misc.movement.no_push", config.misc.movement.no_push);
     config.misc.movement.taunt_slide = get_bool("misc.movement.taunt_slide", config.misc.movement.taunt_slide);
+    config.misc.movement.moonwalk = get_bool("misc.movement.moonwalk", config.misc.movement.moonwalk);
+    config.misc.movement.moonwalk_forward = get_bool("misc.movement.moonwalk_forward", config.misc.movement.moonwalk_forward);
+    config.misc.movement.moonwalk_navbot_compat = get_bool("misc.movement.moonwalk_navbot_compat", config.misc.movement.moonwalk_navbot_compat);
     config.misc.exploits.bypasspure = get_bool("misc.exploits.bypasspure", config.misc.exploits.bypasspure);
     config.misc.exploits.pure_bypass = get_bool("misc.exploits.pure_bypass", config.misc.exploits.pure_bypass);
     config.misc.exploits.cheats_bypass = get_bool("misc.exploits.cheats_bypass", config.misc.exploits.cheats_bypass);

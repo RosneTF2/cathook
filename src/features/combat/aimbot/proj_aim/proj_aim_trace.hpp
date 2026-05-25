@@ -11,6 +11,8 @@ V  o o  V  file: src/features/combat/aimbot/proj_aim/proj_aim_trace.hpp
 #ifndef PROJ_AIM_TRACE_HPP
 #define PROJ_AIM_TRACE_HPP
 
+#include <array>
+
 #include "proj_aim_budget.hpp"
 #include "proj_aim_weapon.hpp"
 #include "features/movement/local_prediction/local_prediction.hpp"
@@ -471,6 +473,93 @@ inline bool proj_aim_trace_path(Player* localplayer,
   }
 
   return proj_aim_trace_path_segment_loop(target, weapon, sim_profile, intercept, fallback_steps, fallback_steps.size());
+}
+
+inline bool proj_aim_trace_simple_path(Player* localplayer,
+  Player* target,
+  Weapon* weapon,
+  const LocalPredictionInterceptResult& intercept) {
+  if (localplayer == nullptr || target == nullptr || weapon == nullptr || engine_trace == nullptr || !intercept.valid) {
+    return false;
+  }
+
+  projectile_sim_profile sim_profile = projectile_sim_profile_for_weapon(localplayer, weapon);
+  if (!sim_profile.valid) {
+    return false;
+  }
+
+  sim_profile.params.max_time = std::min(
+    sim_profile.params.max_time,
+    std::max(intercept.intercept_time + sim_profile.params.time_step, sim_profile.params.time_step));
+  sim_profile.lifetime = sim_profile.params.max_time;
+
+  const projectile_sim_launch launch = proj_aim_launch_from_intercept(localplayer, weapon, intercept, sim_profile);
+  if (!launch.valid || intercept.intercept_time <= 0.0f) {
+    return false;
+  }
+
+  const Vec3 hull_mins = sim_profile.hull * -1.0f;
+  const Vec3 hull_maxs = sim_profile.hull;
+  const float hull_radius = std::max(
+    proj_aim_hull_radius_for_weapon(weapon),
+    std::max(sim_profile.hull.x, std::max(sim_profile.hull.y, sim_profile.hull.z)));
+  const Vec3 inflate{hull_radius, hull_radius, hull_radius};
+  const Vec3 predicted_origin = intercept.has_target_base_origin
+    ? intercept.target_base_origin
+    : intercept.target_origin;
+  const Vec3 target_mins = target->get_player_mins(target->is_ducking()) + predicted_origin - inflate;
+  const Vec3 target_maxs = target->get_player_maxs(target->is_ducking()) + predicted_origin + inflate;
+  const float point_tolerance = std::max(
+    proj_aim_direct_trace_point_tolerance(weapon, sim_profile),
+    projectile_sim_direct_tolerance(sim_profile) + hull_radius);
+
+  std::array<Vec3, 4> points{};
+  int point_count = 0;
+  points[point_count++] = launch.origin;
+  const float middle_time = intercept.intercept_time * 0.5f;
+  if (middle_time > sim_profile.params.time_step) {
+    points[point_count++] = projectile_sim_position_at_time(launch, sim_profile, middle_time);
+  }
+  points[point_count++] = projectile_sim_position_at_time(launch, sim_profile, intercept.intercept_time);
+  if (aimbot_distance_squared(points[point_count - 1], intercept.target_origin) > point_tolerance * point_tolerance) {
+    points[point_count++] = intercept.target_origin;
+  }
+
+  for (int index = 1; index < point_count; ++index) {
+    const Vec3 start = points[index - 1];
+    const Vec3 end = points[index];
+    float target_point_fraction = 1.0f;
+    bool reaches_target_point =
+      proj_aim_segment_point_distance(start, end, intercept.target_origin, &target_point_fraction) <= point_tolerance;
+    float aabb_enter_fraction = 1.0f;
+    if (aimbot_segment_aabb_enter_fraction(start, end, target_mins, target_maxs, &aabb_enter_fraction)) {
+      target_point_fraction = std::min(target_point_fraction, aabb_enter_fraction);
+      reaches_target_point = true;
+    }
+
+    trace_t trace{};
+    if (!projectile_trace_ray(
+        start,
+        end,
+        sim_profile.hull_trace ? &hull_mins : nullptr,
+        sim_profile.hull_trace ? &hull_maxs : nullptr,
+        projectile_trace_contract::world_block,
+        localplayer,
+        -1,
+        &trace)) {
+      return false;
+    }
+    if (!projectile_trace_clear(trace, 0.97f) &&
+        (!reaches_target_point || trace.fraction + 0.001f < target_point_fraction)) {
+      return false;
+    }
+
+    if (reaches_target_point) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 inline bool proj_aim_trace_splash_path(Player* localplayer,

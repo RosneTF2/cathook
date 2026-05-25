@@ -27,8 +27,10 @@ V  o o  V  file: src/features/automation/nographics/nographics.cpp
 #include "features/menu/config.hpp"
 
 #include "games/tf2/sdk/interfaces/client.hpp"
+#include "games/tf2/sdk/interfaces/convar_system.hpp"
 #include "games/tf2/sdk/interfaces/file_system.hpp"
 #include "games/tf2/sdk/interfaces/material_system.hpp"
+#include "games/tf2/sdk/interfaces/mdl_cache.hpp"
 
 #include "funchook/funchook.h"
 #include "libsigscan/libsigscan.h"
@@ -53,6 +55,18 @@ constexpr int base_file_system_precache_index = 9;
 constexpr int base_file_system_file_exists_index = 10;
 constexpr int base_file_system_read_file_index = 14;
 constexpr std::uintptr_t base_file_system_vptr_offset = sizeof(void*);
+constexpr int material_system_create_render_target_texture_index = 84;
+constexpr int material_system_create_named_render_target_texture_ex_index = 85;
+constexpr int material_system_create_named_render_target_texture_index = 86;
+constexpr int material_system_create_named_render_target_texture_ex2_index = 87;
+constexpr int studio_render_draw_model_index = 29;
+constexpr int studio_render_draw_model_static_prop_index = 30;
+constexpr int studio_render_draw_static_prop_decals_index = 31;
+constexpr int studio_render_draw_static_prop_shadows_index = 32;
+constexpr int studio_render_add_decal_index = 36;
+constexpr int studio_render_add_shadow_index = 39;
+constexpr int studio_render_draw_model_array_index = 46;
+constexpr int mdl_cache_touch_all_data_index = 45;
 
 using find_first_fn = const char* (*)(void*, const char*, file_find_handle_t*);
 using find_next_fn = const char* (*)(void*, file_find_handle_t);
@@ -68,6 +82,26 @@ using texture_load_bits_fn = void* (*)(void*, const char*, char**);
 using get_scratch_vtf_texture_fn = void* (*)(void*);
 using handle_file_load_failed_texture_fn = void* (*)(void*, void*);
 using bone_setup_attachment_matrices_fn = std::int64_t (*)(void*, const void*, int, void*, void*, std::int64_t, int);
+using create_render_target_texture_fn = Texture* (*)(void*, int, int, render_target_size_mode, image_format, material_render_target_depth);
+using create_named_render_target_texture_ex_fn = Texture* (*)(void*, const char*, int, int, render_target_size_mode, image_format, material_render_target_depth, unsigned int, unsigned int);
+using create_named_render_target_texture_fn = Texture* (*)(void*, const char*, int, int, render_target_size_mode, image_format, material_render_target_depth, bool, bool);
+using studio_render_draw_model_fn = void (*)(void*, void*, const void*, void*, void*, void*, const void*, int);
+using studio_render_draw_model_static_prop_fn = void (*)(void*, const void*, const void*, int);
+using studio_render_draw_static_prop_decals_fn = void (*)(void*, const void*, const void*);
+using studio_render_draw_static_prop_shadows_fn = void (*)(void*, const void*, const void*, int);
+using studio_render_add_decal_fn = void (*)(void*, void*, void*, void*, const void*, const void*, void*, float, int, bool, int);
+using studio_render_add_shadow_fn = void (*)(void*, void*, void*, void*, void*, void*);
+using studio_render_draw_model_array_fn = void (*)(void*, const void*, int, void*, int, int);
+using mdl_cache_touch_all_data_fn = bool (*)(void*, unsigned short);
+
+struct convar_override
+{
+  const char* name;
+  int wanted_value;
+  Convar* convar;
+  int original_value;
+  bool original_saved;
+};
 
 find_first_fn find_first_original = nullptr;
 find_next_fn find_next_original = nullptr;
@@ -83,12 +117,31 @@ texture_load_bits_fn texture_load_bits_original = nullptr;
 get_scratch_vtf_texture_fn get_scratch_vtf_texture = nullptr;
 handle_file_load_failed_texture_fn handle_file_load_failed_texture = nullptr;
 bone_setup_attachment_matrices_fn bone_setup_attachment_matrices_original = nullptr;
+create_render_target_texture_fn create_render_target_texture_original = nullptr;
+create_named_render_target_texture_ex_fn create_named_render_target_texture_ex_original = nullptr;
+create_named_render_target_texture_fn create_named_render_target_texture_original = nullptr;
+create_named_render_target_texture_ex_fn create_named_render_target_texture_ex2_original = nullptr;
+studio_render_draw_model_fn studio_render_draw_model_original = nullptr;
+studio_render_draw_model_static_prop_fn studio_render_draw_model_static_prop_original = nullptr;
+studio_render_draw_static_prop_decals_fn studio_render_draw_static_prop_decals_original = nullptr;
+studio_render_draw_static_prop_shadows_fn studio_render_draw_static_prop_shadows_original = nullptr;
+studio_render_add_decal_fn studio_render_add_decal_original = nullptr;
+studio_render_add_shadow_fn studio_render_add_shadow_original = nullptr;
+studio_render_draw_model_array_fn studio_render_draw_model_array_original = nullptr;
+mdl_cache_touch_all_data_fn mdl_cache_touch_all_data_original = nullptr;
 
 void** file_system_vtable = nullptr;
 void** base_file_system_vtable = nullptr;
+void** material_system_vtable = nullptr;
+void* studio_render_interface = nullptr;
+void** studio_render_vtable = nullptr;
+void** mdl_cache_vtable = nullptr;
 funchook_t* texture_load_bits_funchook = nullptr;
 funchook_t* bone_setup_attachment_matrices_funchook = nullptr;
 bool file_system_hooked = false;
+bool material_system_render_target_hooked = false;
+bool studio_render_hooked = false;
+bool mdl_cache_touch_all_data_hooked = false;
 bool texture_load_bits_hooked = false;
 bool texture_load_bits_hook_failed = false;
 bool bone_setup_attachment_matrices_hooked = false;
@@ -103,6 +156,28 @@ bool engine_render_patches_initialized = false;
 bool materialsystem_render_patches_initialized = false;
 bool client_textmode_cpu_patches_initialized = false;
 std::atomic_bool startup_patch_running = false;
+std::array<convar_override, 20> nographics_convar_overrides{ {
+  { "mat_norendering", 0, nullptr, 0, false },
+  { "mat_queue_mode", 0, nullptr, 0, false },
+  { "engine_no_focus_sleep", 0, nullptr, 0, false },
+  { "r_3dsky", 0, nullptr, 0, false },
+  { "r_drawdetailprops", 0, nullptr, 0, false },
+  { "r_drawflecks", 0, nullptr, 0, false },
+  { "r_drawmodeldecals", 0, nullptr, 0, false },
+  { "r_drawropes", 0, nullptr, 0, false },
+  { "r_decals", 0, nullptr, 0, false },
+  { "mp_decals", 0, nullptr, 0, false },
+  { "cl_detaildist", 0, nullptr, 0, false },
+  { "cl_detailfade", 0, nullptr, 0, false },
+  { "cl_ejectbrass", 0, nullptr, 0, false },
+  { "cl_show_splashes", 0, nullptr, 0, false },
+  { "mat_disable_bloom", 1, nullptr, 0, false },
+  { "mat_reducefillrate", 1, nullptr, 0, false },
+  { "mat_picmip", 2, nullptr, 0, false },
+  { "mat_specular", 0, nullptr, 0, false },
+  { "mat_bumpmap", 0, nullptr, 0, false },
+  { "mat_phong", 0, nullptr, 0, false },
+} };
 
 #if defined(CATHOOK_TEXTMODE) && CATHOOK_TEXTMODE
 constexpr bool textmode_build = true;
@@ -145,19 +220,79 @@ bool is_startup_patch_module(const char* library_path)
   return name == "engine.so" ||
          name == "client.so" ||
          name == "materialsystem.so" ||
+         name == "studiorender.so" ||
+         name == "datacache.so" ||
          name == "filesystem_stdio.so" ||
          name == "filesystem_steam.so";
 }
 
+bool should_apply_experimental_nographic_hooks()
+{
+  return config.misc.exploits.experimental_nographic_hooks;
+}
+
 bool should_apply_extra_render_patches()
 {
-  return textmode_build || config.misc.exploits.null_graphics;
+  return should_apply_experimental_nographic_hooks();
 }
 
 void sync_nographics_toggles()
 {
-  config.misc.exploits.null_graphics_render_stubs = textmode_build || config.misc.exploits.null_graphics;
-  config.misc.exploits.experimental_nographic_hooks = textmode_build || config.misc.exploits.null_graphics;
+}
+
+void resolve_nographics_convar(convar_override& entry)
+{
+  if (entry.convar == nullptr && convar_system != nullptr)
+  {
+    entry.convar = convar_system->find_var(entry.name);
+  }
+}
+
+void apply_nographics_convar_overrides()
+{
+  if (convar_system == nullptr)
+  {
+    return;
+  }
+
+  for (convar_override& entry : nographics_convar_overrides)
+  {
+    resolve_nographics_convar(entry);
+    if (entry.convar == nullptr)
+    {
+      continue;
+    }
+
+    if (!entry.original_saved)
+    {
+      entry.original_value = entry.convar->get_int();
+      entry.original_saved = true;
+    }
+
+    if (entry.convar->get_int() != entry.wanted_value)
+    {
+      entry.convar->set_int(entry.wanted_value);
+    }
+  }
+}
+
+void restore_nographics_convar_overrides()
+{
+  for (convar_override& entry : nographics_convar_overrides)
+  {
+    resolve_nographics_convar(entry);
+    if (entry.convar == nullptr || !entry.original_saved)
+    {
+      continue;
+    }
+
+    if (entry.convar->get_int() != entry.original_value)
+    {
+      entry.convar->set_int(entry.original_value);
+    }
+
+    entry.original_saved = false;
+  }
 }
 
 byte_patch particle_create_patch{};
@@ -167,10 +302,20 @@ byte_patch view_render_patch{};
 byte_patch replay_screenshot_patch{};
 byte_patch steam_rich_presence_patch{};
 byte_patch cl_decay_lights_patch{};
+byte_patch fps_max_min_patch{};
 byte_patch mod_load_lighting_patch{};
 byte_patch mod_load_worldlights_patch{};
+byte_patch mod_load_texinfo_material_branch_patch{};
 byte_patch sprite_load_model_patch{};
 byte_patch overlay_mgr_load_overlays_patch{};
+byte_patch shadow_render_patch{};
+byte_patch static_prop_draw_patch{};
+byte_patch engine_sound_emit_sound_internal_patch{};
+byte_patch s_precache_sound_patch{};
+byte_patch svc_bspdecal_process_patch{};
+byte_patch r_draw_decals_all_0_patch{};
+byte_patch r_draw_decals_all_1_patch{};
+byte_patch v_render_view_patch{};
 byte_patch material_system_begin_frame_patch{};
 byte_patch startup_video_patch{};
 byte_patch video_mode_setup_startup_graphic_patch{};
@@ -599,6 +744,144 @@ void* texture_load_bits_hook(void* this_ptr, const char* cache_file_name, char**
   return texture_load_bits_original(this_ptr, cache_file_name, resolved_filename);
 }
 
+Texture* create_render_target_texture_hook(
+  void* this_ptr,
+  int width,
+  int height,
+  render_target_size_mode size_mode,
+  image_format format,
+  material_render_target_depth depth)
+{
+  (void)width;
+  (void)height;
+  return create_render_target_texture_original(this_ptr, 1, 1, size_mode, format, depth);
+}
+
+Texture* create_named_render_target_texture_ex_hook(
+  void* this_ptr,
+  const char* render_target_name,
+  int width,
+  int height,
+  render_target_size_mode size_mode,
+  image_format format,
+  material_render_target_depth depth,
+  unsigned int texture_flags,
+  unsigned int render_target_flags)
+{
+  (void)width;
+  (void)height;
+  return create_named_render_target_texture_ex_original(this_ptr, render_target_name, 1, 1, size_mode, format, depth, texture_flags, render_target_flags);
+}
+
+Texture* create_named_render_target_texture_hook(
+  void* this_ptr,
+  const char* render_target_name,
+  int width,
+  int height,
+  render_target_size_mode size_mode,
+  image_format format,
+  material_render_target_depth depth,
+  bool clamp_tex_coords,
+  bool auto_mip_map)
+{
+  (void)width;
+  (void)height;
+  return create_named_render_target_texture_original(this_ptr, render_target_name, 1, 1, size_mode, format, depth, clamp_tex_coords, auto_mip_map);
+}
+
+Texture* create_named_render_target_texture_ex2_hook(
+  void* this_ptr,
+  const char* render_target_name,
+  int width,
+  int height,
+  render_target_size_mode size_mode,
+  image_format format,
+  material_render_target_depth depth,
+  unsigned int texture_flags,
+  unsigned int render_target_flags)
+{
+  (void)width;
+  (void)height;
+  return create_named_render_target_texture_ex2_original(this_ptr, render_target_name, 1, 1, size_mode, format, depth, texture_flags, render_target_flags);
+}
+
+void studio_render_draw_model_hook(void* this_ptr, void* results, const void* info, void* bone_to_world, void* flex_weights, void* flex_delayed_weights, const void* model_origin, int flags)
+{
+  (void)this_ptr;
+  (void)results;
+  (void)info;
+  (void)bone_to_world;
+  (void)flex_weights;
+  (void)flex_delayed_weights;
+  (void)model_origin;
+  (void)flags;
+}
+
+void studio_render_draw_model_static_prop_hook(void* this_ptr, const void* draw_info, const void* model_to_world, int flags)
+{
+  (void)this_ptr;
+  (void)draw_info;
+  (void)model_to_world;
+  (void)flags;
+}
+
+void studio_render_draw_static_prop_decals_hook(void* this_ptr, const void* draw_info, const void* model_to_world)
+{
+  (void)this_ptr;
+  (void)draw_info;
+  (void)model_to_world;
+}
+
+void studio_render_draw_static_prop_shadows_hook(void* this_ptr, const void* draw_info, const void* model_to_world, int flags)
+{
+  (void)this_ptr;
+  (void)draw_info;
+  (void)model_to_world;
+  (void)flags;
+}
+
+void studio_render_add_decal_hook(void* this_ptr, void* handle, void* studio_hdr, void* bone_to_world, const void* ray, const void* decal_up, void* decal_material, float radius, int body, bool no_pokethru, int max_lod_to_decal)
+{
+  (void)this_ptr;
+  (void)handle;
+  (void)studio_hdr;
+  (void)bone_to_world;
+  (void)ray;
+  (void)decal_up;
+  (void)decal_material;
+  (void)radius;
+  (void)body;
+  (void)no_pokethru;
+  (void)max_lod_to_decal;
+}
+
+void studio_render_add_shadow_hook(void* this_ptr, void* material, void* proxy_data, void* flashlight_state, void* world_to_texture, void* flashlight_depth_texture)
+{
+  (void)this_ptr;
+  (void)material;
+  (void)proxy_data;
+  (void)flashlight_state;
+  (void)world_to_texture;
+  (void)flashlight_depth_texture;
+}
+
+void studio_render_draw_model_array_hook(void* this_ptr, const void* draw_info, int array_count, void* instance_data, int instance_stride, int flags)
+{
+  (void)this_ptr;
+  (void)draw_info;
+  (void)array_count;
+  (void)instance_data;
+  (void)instance_stride;
+  (void)flags;
+}
+
+bool mdl_cache_touch_all_data_hook(void* this_ptr, unsigned short handle)
+{
+  (void)this_ptr;
+  (void)handle;
+  return true;
+}
+
 void* resolve_rip_target(std::uint8_t* instruction, int displacement_offset, int instruction_size)
 {
   const auto displacement = *reinterpret_cast<std::int32_t*>(instruction + displacement_offset);
@@ -668,10 +951,26 @@ void initialize_engine_render_patches()
   initialize_optional_patch(startup_video_patch, "engine.so", sigs::startup_video, 0, { 0x31, 0xC0, 0xC3 }, "startup_video");
   initialize_optional_patch(video_mode_setup_startup_graphic_patch, "engine.so", sigs::video_mode_setup_startup_graphic, 0, { 0xC3 }, "video_mode_setup_startup_graphic");
   initialize_optional_patch(cl_decay_lights_patch, "engine.so", sigs::cl_decay_lights, 0, { 0xC3 }, "cl_decay_lights");
+  initialize_optional_patch(fps_max_min_patch, "engine.so", sigs::engine_fps_max_min_clamp, 7, { 0x90, 0xE9 }, "engine_fps_max_min_clamp");
   initialize_optional_patch(mod_load_lighting_patch, "engine.so", sigs::mod_load_lighting, 0, { 0x31, 0xC0, 0xC3 }, "mod_load_lighting");
   initialize_optional_patch(mod_load_worldlights_patch, "engine.so", sigs::mod_load_worldlights, 0, { 0x31, 0xC0, 0xC3 }, "mod_load_worldlights");
+  initialize_optional_patch(
+    mod_load_texinfo_material_branch_patch,
+    "engine.so",
+    sigs::mod_load_texinfo_material_branch,
+    17,
+    { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 },
+    "mod_load_texinfo_material_branch");
   initialize_optional_patch(sprite_load_model_patch, "engine.so", sigs::sprite_load_model, 0, { 0xC3 }, "sprite_load_model");
   initialize_optional_patch(overlay_mgr_load_overlays_patch, "engine.so", sigs::overlay_mgr_load_overlays, 0, { 0xB0, 0x01, 0xC3 }, "overlay_mgr_load_overlays");
+  initialize_optional_patch(shadow_render_patch, "engine.so", sigs::shadow_mgr_render_shadows, 0, { 0xC3 }, "shadow_mgr_render_shadows");
+  initialize_optional_patch(static_prop_draw_patch, "engine.so", sigs::static_prop_mgr_draw_static_props, 0, { 0xC3 }, "static_prop_mgr_draw_static_props");
+  initialize_optional_patch(engine_sound_emit_sound_internal_patch, "engine.so", sigs::engine_sound_emit_sound_internal, 0, { 0xC3 }, "engine_sound_emit_sound_internal");
+  initialize_optional_patch(s_precache_sound_patch, "engine.so", sigs::s_precache_sound, 0, { 0x31, 0xC0, 0xC3 }, "s_precache_sound");
+  initialize_optional_patch(svc_bspdecal_process_patch, "engine.so", sigs::svc_bspdecal_process, 0, { 0xB0, 0x01, 0xC3 }, "svc_bspdecal_process");
+  initialize_optional_patch(r_draw_decals_all_0_patch, "engine.so", sigs::r_draw_decals_all_0, 0, { 0xC3 }, "r_draw_decals_all_0");
+  initialize_optional_patch(r_draw_decals_all_1_patch, "engine.so", sigs::r_draw_decals_all_1, 0, { 0xC3 }, "r_draw_decals_all_1");
+  initialize_optional_patch(v_render_view_patch, "engine.so", sigs::v_render_view, 0, { 0xC3 }, "v_render_view");
 }
 
 void initialize_materialsystem_render_patches()
@@ -713,10 +1012,20 @@ void restore_optional_render_patches()
   startup_video_patch.restore();
   video_mode_setup_startup_graphic_patch.restore();
   cl_decay_lights_patch.restore();
+  fps_max_min_patch.restore();
   mod_load_lighting_patch.restore();
   mod_load_worldlights_patch.restore();
+  mod_load_texinfo_material_branch_patch.restore();
   sprite_load_model_patch.restore();
   overlay_mgr_load_overlays_patch.restore();
+  shadow_render_patch.restore();
+  static_prop_draw_patch.restore();
+  engine_sound_emit_sound_internal_patch.restore();
+  s_precache_sound_patch.restore();
+  svc_bspdecal_process_patch.restore();
+  r_draw_decals_all_0_patch.restore();
+  r_draw_decals_all_1_patch.restore();
+  v_render_view_patch.restore();
   material_system_begin_frame_patch.restore();
   ragdoll_lru_update_patch.restore();
   particle_mgr_simulate_undrawn_patch.restore();
@@ -751,10 +1060,20 @@ bool apply_optional_render_patches()
   applied_any_patch = apply_optional_patch(startup_video_patch, "startup_video") || applied_any_patch;
   applied_any_patch = apply_optional_patch(video_mode_setup_startup_graphic_patch, "video_mode_setup_startup_graphic") || applied_any_patch;
   applied_any_patch = apply_optional_patch(cl_decay_lights_patch, "cl_decay_lights") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(fps_max_min_patch, "engine_fps_max_min_clamp") || applied_any_patch;
   applied_any_patch = apply_optional_patch(mod_load_lighting_patch, "mod_load_lighting") || applied_any_patch;
   applied_any_patch = apply_optional_patch(mod_load_worldlights_patch, "mod_load_worldlights") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(mod_load_texinfo_material_branch_patch, "mod_load_texinfo_material_branch") || applied_any_patch;
   applied_any_patch = apply_optional_patch(sprite_load_model_patch, "sprite_load_model") || applied_any_patch;
   applied_any_patch = apply_optional_patch(overlay_mgr_load_overlays_patch, "overlay_mgr_load_overlays") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(shadow_render_patch, "shadow_mgr_render_shadows") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(static_prop_draw_patch, "static_prop_mgr_draw_static_props") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(engine_sound_emit_sound_internal_patch, "engine_sound_emit_sound_internal") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(s_precache_sound_patch, "s_precache_sound") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(svc_bspdecal_process_patch, "svc_bspdecal_process") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(r_draw_decals_all_0_patch, "r_draw_decals_all_0") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(r_draw_decals_all_1_patch, "r_draw_decals_all_1") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(v_render_view_patch, "v_render_view") || applied_any_patch;
   applied_any_patch = apply_optional_patch(material_system_begin_frame_patch, "material_system_begin_frame") || applied_any_patch;
   applied_any_patch = apply_optional_patch(ragdoll_lru_update_patch, "client_ragdoll_lru_update") || applied_any_patch;
   applied_any_patch = apply_optional_patch(particle_mgr_simulate_undrawn_patch, "client_particle_mgr_simulate_undrawn") || applied_any_patch;
@@ -907,6 +1226,19 @@ bool initialize_extra_crashfix_patches()
   return initialized_any_patch;
 }
 
+void restore_extra_crashfix_patches()
+{
+  for (byte_patch& patch : character_info_command_patches)
+  {
+    patch.restore();
+  }
+
+  econ_item_definition_index_patch.restore();
+  studio_render_draw_model_wrapper_patch.restore();
+  econ_panel_flex_primary_patch.restore();
+  econ_panel_flex_attachments_patch.restore();
+}
+
 void restore_render_patch_objects()
 {
   particle_create_patch.restore();
@@ -922,15 +1254,7 @@ void restore_render_patch_objects()
     patch.restore();
   }
 
-  for (auto& patch : character_info_command_patches)
-  {
-    patch.restore();
-  }
-
-  econ_item_definition_index_patch.restore();
-  studio_render_draw_model_wrapper_patch.restore();
-  econ_panel_flex_primary_patch.restore();
-  econ_panel_flex_attachments_patch.restore();
+  restore_extra_crashfix_patches();
 }
 
 bool initialize_render_patches()
@@ -984,7 +1308,13 @@ bool initialize_render_patches()
 void apply_render_patches()
 {
   const bool core_patches_ready = initialize_render_patches();
+  const bool experimental_hooks_enabled = should_apply_experimental_nographic_hooks();
   bool ok = true;
+
+  if (!experimental_hooks_enabled)
+  {
+    restore_extra_crashfix_patches();
+  }
 
   if (core_patches_ready)
   {
@@ -998,14 +1328,18 @@ void apply_render_patches()
     {
       ok = apply_render_patch_if_valid(patch, "replay_ui_nullcheck") && ok;
     }
-    for (auto& patch : character_info_command_patches)
+
+    if (experimental_hooks_enabled)
     {
-      ok = apply_render_patch_if_valid(patch, "character_info_command") && ok;
+      for (byte_patch& patch : character_info_command_patches)
+      {
+        ok = apply_render_patch_if_valid(patch, "character_info_command") && ok;
+      }
+      ok = apply_render_patch_if_valid(econ_item_definition_index_patch, "econ_item_definition_index") && ok;
+      ok = apply_render_patch_if_valid(studio_render_draw_model_wrapper_patch, "studio_render_draw_model_wrapper") && ok;
+      ok = apply_render_patch_if_valid(econ_panel_flex_primary_patch, "client_econ_panel_flex_primary") && ok;
+      ok = apply_render_patch_if_valid(econ_panel_flex_attachments_patch, "client_econ_panel_flex_attachments") && ok;
     }
-    ok = apply_render_patch_if_valid(econ_item_definition_index_patch, "econ_item_definition_index") && ok;
-    ok = apply_render_patch_if_valid(studio_render_draw_model_wrapper_patch, "studio_render_draw_model_wrapper") && ok;
-    ok = apply_render_patch_if_valid(econ_panel_flex_primary_patch, "client_econ_panel_flex_primary") && ok;
-    ok = apply_render_patch_if_valid(econ_panel_flex_attachments_patch, "client_econ_panel_flex_attachments") && ok;
   }
 
   if (!ok)
@@ -1044,6 +1378,9 @@ void restore_render_patches()
 void disable_file_system_hooks();
 void disable_texture_load_hook();
 void disable_bone_setup_attachment_matrices_guard();
+void disable_material_system_render_target_hooks();
+void disable_studio_render_hooks();
+void disable_mdl_cache_touch_all_data_hook();
 
 void enable_bone_setup_attachment_matrices_guard()
 {
@@ -1213,6 +1550,199 @@ void disable_texture_load_hook()
   texture_load_bits_hooked = false;
 }
 
+void enable_material_system_render_target_hooks()
+{
+  if (material_system_render_target_hooked || material_system == nullptr)
+  {
+    return;
+  }
+
+  material_system_vtable = *reinterpret_cast<void***>(material_system);
+
+  bool ok = true;
+  ok &= hook_vtable(
+    material_system_vtable,
+    material_system_create_render_target_texture_index,
+    reinterpret_cast<void*>(create_render_target_texture_hook),
+    &create_render_target_texture_original);
+  ok &= hook_vtable(
+    material_system_vtable,
+    material_system_create_named_render_target_texture_ex_index,
+    reinterpret_cast<void*>(create_named_render_target_texture_ex_hook),
+    &create_named_render_target_texture_ex_original);
+  ok &= hook_vtable(
+    material_system_vtable,
+    material_system_create_named_render_target_texture_index,
+    reinterpret_cast<void*>(create_named_render_target_texture_hook),
+    &create_named_render_target_texture_original);
+  ok &= hook_vtable(
+    material_system_vtable,
+    material_system_create_named_render_target_texture_ex2_index,
+    reinterpret_cast<void*>(create_named_render_target_texture_ex2_hook),
+    &create_named_render_target_texture_ex2_original);
+
+  if (!ok)
+  {
+    material_system_render_target_hooked = true;
+    disable_material_system_render_target_hooks();
+    print("[nographics] material render target hook setup failed\n");
+    return;
+  }
+
+  material_system_render_target_hooked = true;
+}
+
+void disable_material_system_render_target_hooks()
+{
+  if (!material_system_render_target_hooked)
+  {
+    return;
+  }
+
+  if (create_render_target_texture_original != nullptr)
+  {
+    write_to_table(material_system_vtable, material_system_create_render_target_texture_index, reinterpret_cast<void*>(create_render_target_texture_original));
+  }
+  if (create_named_render_target_texture_ex_original != nullptr)
+  {
+    write_to_table(material_system_vtable, material_system_create_named_render_target_texture_ex_index, reinterpret_cast<void*>(create_named_render_target_texture_ex_original));
+  }
+  if (create_named_render_target_texture_original != nullptr)
+  {
+    write_to_table(material_system_vtable, material_system_create_named_render_target_texture_index, reinterpret_cast<void*>(create_named_render_target_texture_original));
+  }
+  if (create_named_render_target_texture_ex2_original != nullptr)
+  {
+    write_to_table(material_system_vtable, material_system_create_named_render_target_texture_ex2_index, reinterpret_cast<void*>(create_named_render_target_texture_ex2_original));
+  }
+
+  material_system_render_target_hooked = false;
+  material_system_vtable = nullptr;
+  create_render_target_texture_original = nullptr;
+  create_named_render_target_texture_ex_original = nullptr;
+  create_named_render_target_texture_original = nullptr;
+  create_named_render_target_texture_ex2_original = nullptr;
+}
+
+void enable_studio_render_hooks()
+{
+  if (studio_render_hooked || studio_render_interface == nullptr)
+  {
+    return;
+  }
+
+  studio_render_vtable = *reinterpret_cast<void***>(studio_render_interface);
+
+  bool ok = true;
+  ok &= hook_vtable(studio_render_vtable, studio_render_draw_model_index, reinterpret_cast<void*>(studio_render_draw_model_hook), &studio_render_draw_model_original);
+  ok &= hook_vtable(studio_render_vtable, studio_render_draw_model_static_prop_index, reinterpret_cast<void*>(studio_render_draw_model_static_prop_hook), &studio_render_draw_model_static_prop_original);
+  ok &= hook_vtable(studio_render_vtable, studio_render_draw_static_prop_decals_index, reinterpret_cast<void*>(studio_render_draw_static_prop_decals_hook), &studio_render_draw_static_prop_decals_original);
+  ok &= hook_vtable(studio_render_vtable, studio_render_draw_static_prop_shadows_index, reinterpret_cast<void*>(studio_render_draw_static_prop_shadows_hook), &studio_render_draw_static_prop_shadows_original);
+  ok &= hook_vtable(studio_render_vtable, studio_render_add_decal_index, reinterpret_cast<void*>(studio_render_add_decal_hook), &studio_render_add_decal_original);
+  ok &= hook_vtable(studio_render_vtable, studio_render_add_shadow_index, reinterpret_cast<void*>(studio_render_add_shadow_hook), &studio_render_add_shadow_original);
+  ok &= hook_vtable(studio_render_vtable, studio_render_draw_model_array_index, reinterpret_cast<void*>(studio_render_draw_model_array_hook), &studio_render_draw_model_array_original);
+
+  if (!ok)
+  {
+    studio_render_hooked = true;
+    disable_studio_render_hooks();
+    print("[nographics] studio render hook setup failed\n");
+    return;
+  }
+
+  studio_render_hooked = true;
+}
+
+void disable_studio_render_hooks()
+{
+  if (!studio_render_hooked)
+  {
+    return;
+  }
+
+  if (studio_render_draw_model_original != nullptr)
+  {
+    write_to_table(studio_render_vtable, studio_render_draw_model_index, reinterpret_cast<void*>(studio_render_draw_model_original));
+  }
+  if (studio_render_draw_model_static_prop_original != nullptr)
+  {
+    write_to_table(studio_render_vtable, studio_render_draw_model_static_prop_index, reinterpret_cast<void*>(studio_render_draw_model_static_prop_original));
+  }
+  if (studio_render_draw_static_prop_decals_original != nullptr)
+  {
+    write_to_table(studio_render_vtable, studio_render_draw_static_prop_decals_index, reinterpret_cast<void*>(studio_render_draw_static_prop_decals_original));
+  }
+  if (studio_render_draw_static_prop_shadows_original != nullptr)
+  {
+    write_to_table(studio_render_vtable, studio_render_draw_static_prop_shadows_index, reinterpret_cast<void*>(studio_render_draw_static_prop_shadows_original));
+  }
+  if (studio_render_add_decal_original != nullptr)
+  {
+    write_to_table(studio_render_vtable, studio_render_add_decal_index, reinterpret_cast<void*>(studio_render_add_decal_original));
+  }
+  if (studio_render_add_shadow_original != nullptr)
+  {
+    write_to_table(studio_render_vtable, studio_render_add_shadow_index, reinterpret_cast<void*>(studio_render_add_shadow_original));
+  }
+  if (studio_render_draw_model_array_original != nullptr)
+  {
+    write_to_table(studio_render_vtable, studio_render_draw_model_array_index, reinterpret_cast<void*>(studio_render_draw_model_array_original));
+  }
+
+  studio_render_hooked = false;
+  studio_render_vtable = nullptr;
+  studio_render_draw_model_original = nullptr;
+  studio_render_draw_model_static_prop_original = nullptr;
+  studio_render_draw_static_prop_decals_original = nullptr;
+  studio_render_draw_static_prop_shadows_original = nullptr;
+  studio_render_add_decal_original = nullptr;
+  studio_render_add_shadow_original = nullptr;
+  studio_render_draw_model_array_original = nullptr;
+}
+
+void enable_mdl_cache_touch_all_data_hook()
+{
+  if (mdl_cache_touch_all_data_hooked || mdl_cache == nullptr)
+  {
+    return;
+  }
+
+  mdl_cache_vtable = *reinterpret_cast<void***>(mdl_cache);
+
+  const bool ok = hook_vtable(
+    mdl_cache_vtable,
+    mdl_cache_touch_all_data_index,
+    reinterpret_cast<void*>(mdl_cache_touch_all_data_hook),
+    &mdl_cache_touch_all_data_original);
+
+  if (!ok)
+  {
+    mdl_cache_touch_all_data_hooked = true;
+    disable_mdl_cache_touch_all_data_hook();
+    print("[nographics] mdl cache touch all data hook setup failed\n");
+    return;
+  }
+
+  mdl_cache_touch_all_data_hooked = true;
+}
+
+void disable_mdl_cache_touch_all_data_hook()
+{
+  if (!mdl_cache_touch_all_data_hooked)
+  {
+    return;
+  }
+
+  if (mdl_cache_touch_all_data_original != nullptr)
+  {
+    write_to_table(mdl_cache_vtable, mdl_cache_touch_all_data_index, reinterpret_cast<void*>(mdl_cache_touch_all_data_original));
+  }
+
+  mdl_cache_touch_all_data_hooked = false;
+  mdl_cache_vtable = nullptr;
+  mdl_cache_touch_all_data_original = nullptr;
+}
+
 void enable_file_system_hooks()
 {
   if (file_system_hooked || game_file_system == nullptr)
@@ -1326,6 +1856,26 @@ void resolve_material_system_interface()
   material_system = static_cast<MaterialSystem*>(get_interface("./bin/linux64/materialsystem.so", "VMaterialSystem082"));
 }
 
+void resolve_studio_render_interface()
+{
+  if (studio_render_interface != nullptr || !module_is_loaded("studiorender.so"))
+  {
+    return;
+  }
+
+  studio_render_interface = get_interface("./bin/linux64/studiorender.so", "VStudioRender025");
+}
+
+void resolve_mdl_cache_interface()
+{
+  if (mdl_cache != nullptr || !module_is_loaded("datacache.so"))
+  {
+    return;
+  }
+
+  mdl_cache = static_cast<mdl_cache_interface*>(get_interface("./bin/linux64/datacache.so", "MDLCache004"));
+}
+
 } // namespace
 
 void initialize()
@@ -1369,9 +1919,15 @@ void prepare_startup_patches()
     } release;
 
     initialize();
+    apply_nographics_convar_overrides();
     resolve_material_system_interface();
+    resolve_studio_render_interface();
+    resolve_mdl_cache_interface();
     enable_texture_load_hook();
     enable_file_system_hooks();
+    enable_material_system_render_target_hooks();
+    enable_studio_render_hooks();
+    enable_mdl_cache_touch_all_data_hook();
     enable_bone_setup_attachment_matrices_guard();
     update_material_stub(true);
     apply_render_patches();
@@ -1407,11 +1963,31 @@ void update()
   initialize();
 
   const bool enabled = textmode_build || config.misc.exploits.null_graphics;
+  const bool experimental_hooks_enabled = should_apply_experimental_nographic_hooks();
   if (enabled)
   {
-    enable_texture_load_hook();
-    enable_file_system_hooks();
-    enable_bone_setup_attachment_matrices_guard();
+    apply_nographics_convar_overrides();
+    resolve_material_system_interface();
+    if (experimental_hooks_enabled)
+    {
+      resolve_studio_render_interface();
+      resolve_mdl_cache_interface();
+      enable_texture_load_hook();
+      enable_file_system_hooks();
+      enable_material_system_render_target_hooks();
+      enable_studio_render_hooks();
+      enable_mdl_cache_touch_all_data_hook();
+      enable_bone_setup_attachment_matrices_guard();
+    }
+    else
+    {
+      disable_studio_render_hooks();
+      disable_material_system_render_target_hooks();
+      disable_mdl_cache_touch_all_data_hook();
+      disable_texture_load_hook();
+      disable_file_system_hooks();
+      disable_bone_setup_attachment_matrices_guard();
+    }
     update_material_stub(true);
     if (textmode_build || config.misc.exploits.null_graphics_render_stubs)
     {
@@ -1424,8 +2000,12 @@ void update()
     return;
   }
 
+  restore_nographics_convar_overrides();
   restore_render_patches();
   update_material_stub(false);
+  disable_studio_render_hooks();
+  disable_material_system_render_target_hooks();
+  disable_mdl_cache_touch_all_data_hook();
   disable_texture_load_hook();
   disable_file_system_hooks();
   disable_bone_setup_attachment_matrices_guard();
@@ -1433,8 +2013,12 @@ void update()
 
 void shutdown()
 {
+  restore_nographics_convar_overrides();
   restore_render_patches();
   update_material_stub(false);
+  disable_studio_render_hooks();
+  disable_material_system_render_target_hooks();
+  disable_mdl_cache_touch_all_data_hook();
   disable_texture_load_hook();
   disable_file_system_hooks();
   disable_bone_setup_attachment_matrices_guard();

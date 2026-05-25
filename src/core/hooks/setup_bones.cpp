@@ -14,6 +14,7 @@ V  o o  V  file: src/core/hooks/setup_bones.cpp
 #include <cstdint>
 #include <cstring>
 
+#include "features/automation/nographics/nographics.hpp"
 #include "features/menu/config.hpp"
 
 #include "games/tf2/sdk/netvars.hpp"
@@ -54,6 +55,7 @@ auto cached_bone_data_offset() -> int
 auto should_use_cached_bones(Player* player, void* bone_to_world_out) -> bool
 {
   if (!config.misc.exploits.setup_bones_optimization ||
+      nographics::is_enabled() ||
       player == nullptr ||
       bone_to_world_out == nullptr ||
       entity_list == nullptr)

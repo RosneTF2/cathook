@@ -176,6 +176,48 @@ constexpr std::array<int, max_points> tracked_hitbox_ids = {
   return !trace_world.all_solid && !trace_world.start_solid && trace_world.fraction >= 0.999f;
 }
 
+[[nodiscard]] bool ray_hits_record_hitbox(const backtrack_record& record,
+  int hitbox_id,
+  const Vec3& start_pos,
+  const Vec3& end_pos,
+  bool* tested)
+{
+  if (tested != nullptr) {
+    *tested = false;
+  }
+
+  if (record.player == nullptr ||
+      hitbox_id < 0 ||
+      record.bone_count <= 0 ||
+      model_info == nullptr) {
+    return false;
+  }
+
+  const model_t* model = record.player->get_model();
+  studio_hdr* hdr = model != nullptr ? model_info->get_studio_model(model) : nullptr;
+  studio_hitbox_set* hitbox_set = hdr != nullptr ? hdr->hitbox_set(record.player->get_hitbox_set()) : nullptr;
+  if (hitbox_set == nullptr || hitbox_id >= hitbox_set->num_hitboxes) {
+    return false;
+  }
+
+  studio_box* hitbox = hitbox_set->hitbox(hitbox_id);
+  if (hitbox == nullptr || hitbox->bone < 0 || hitbox->bone >= record.bone_count) {
+    return false;
+  }
+
+  if (tested != nullptr) {
+    *tested = true;
+  }
+
+  const matrix_3x4& bone_to_world = record.bones[hitbox->bone];
+  const Vec3 local_start = aimbot_inverse_transform_point(start_pos, bone_to_world);
+  const Vec3 local_end = aimbot_inverse_transform_point(end_pos, bone_to_world);
+  constexpr float hitbox_expansion = 2.5f;
+  const Vec3 mins = hitbox->bbmin - Vec3{ hitbox_expansion, hitbox_expansion, hitbox_expansion };
+  const Vec3 maxs = hitbox->bbmax + Vec3{ hitbox_expansion, hitbox_expansion, hitbox_expansion };
+  return aimbot_segment_intersects_aabb(local_start, local_end, mins, maxs);
+}
+
 [[nodiscard]] bool ray_hits_record(const backtrack_record& record,
   int hitbox_id,
   const Vec3& start_pos,
@@ -187,6 +229,12 @@ constexpr std::array<int, max_points> tracked_hitbox_ids = {
 
   if (hitbox_id < 0) {
     return aimbot_segment_intersects_aabb(start_pos, end_pos, record.bounds.mins, record.bounds.maxs);
+  }
+
+  bool tested_hitbox = false;
+  const bool hitbox_hit = ray_hits_record_hitbox(record, hitbox_id, start_pos, end_pos, &tested_hitbox);
+  if (tested_hitbox) {
+    return hitbox_hit;
   }
 
   const Vec3 center = (record.bounds.mins + record.bounds.maxs) * 0.5f;

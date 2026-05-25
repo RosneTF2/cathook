@@ -33,6 +33,70 @@ inline bool random_initialized = false;
 inline bool bullet_spread_initialized = false;
 inline bool bullet_spread_signature_found = false;
 
+struct valve_random_stream {
+  static constexpr int table_size = 32;
+  static constexpr int ia = 16807;
+  static constexpr int im = 2147483647;
+  static constexpr int iq = 127773;
+  static constexpr int ir = 2836;
+  static constexpr int ndiv = 1 + ((im - 1) / table_size);
+  static constexpr double am = 1.0 / static_cast<double>(im);
+  static constexpr double rnmx = 1.0 - 1.2e-7;
+
+  int seed_value = 0;
+  int shuffle_value = 0;
+  int table[table_size]{};
+
+  void set_seed(int seed) {
+    seed_value = seed < 0 ? seed : -seed;
+    shuffle_value = 0;
+  }
+
+  int generate_random_number() {
+    int j = 0;
+    int k = 0;
+
+    if (seed_value <= 0 || shuffle_value == 0) {
+      seed_value = -seed_value < 1 ? 1 : -seed_value;
+
+      for (j = table_size + 7; j >= 0; --j) {
+        k = seed_value / iq;
+        seed_value = ia * (seed_value - (k * iq)) - (ir * k);
+        if (seed_value < 0) {
+          seed_value += im;
+        }
+        if (j < table_size) {
+          table[j] = seed_value;
+        }
+      }
+      shuffle_value = table[0];
+    }
+
+    k = seed_value / iq;
+    seed_value = ia * (seed_value - (k * iq)) - (ir * k);
+    if (seed_value < 0) {
+      seed_value += im;
+    }
+
+    j = shuffle_value / ndiv;
+    if (j >= table_size || j < 0) {
+      j &= table_size - 1;
+    }
+
+    shuffle_value = table[j];
+    table[j] = seed_value;
+    return shuffle_value;
+  }
+
+  float random_float(float lo, float hi) {
+    double value = am * static_cast<double>(generate_random_number());
+    if (value > rnmx) {
+      value = rnmx;
+    }
+    return static_cast<float>((value * static_cast<double>(hi - lo)) + static_cast<double>(lo));
+  }
+};
+
 inline bool init_random() {
   if (random_initialized) {
     return random_seed != nullptr && random_float != nullptr;
@@ -80,15 +144,20 @@ inline bool fixed_weapon_spreads_enabled() {
   return fixed_weapon_spreads != nullptr && fixed_weapon_spreads->get_int() != 0;
 }
 
-inline float spread_rand_float_valve(int* stream_seed, float lo, float hi) {
-  if (stream_seed == nullptr) {
-    return lo;
+inline int hitscan_spread_seed(user_cmd* user_cmd) {
+  if (user_cmd == nullptr) {
+    return 0;
   }
 
-  *stream_seed = (*stream_seed) * 214013 + 2531011;
-  const int r = (*stream_seed >> 16) & 0x7fff;
-  const float t = static_cast<float>(r) * (1.0f / 32768.0f);
-  return lo + (hi - lo) * t;
+  if (user_cmd->random_seed != 0) {
+    return user_cmd->random_seed & 255;
+  }
+
+  if (user_cmd->command_number <= 0) {
+    return 0;
+  }
+
+  return (MD5_PseudoRandom(static_cast<unsigned int>(user_cmd->command_number)) & INT_MAX) & 255;
 }
 
 inline bool hitscan_spread_offset(user_cmd* user_cmd, int pellet_index, float spread, Vec3* offset_out) {
@@ -97,18 +166,14 @@ inline bool hitscan_spread_offset(user_cmd* user_cmd, int pellet_index, float sp
   }
 
   *offset_out = {};
-  if (user_cmd == nullptr || user_cmd->command_number <= 0 || spread <= 0.0f) {
+  if (user_cmd == nullptr || (user_cmd->command_number <= 0 && user_cmd->random_seed == 0) || spread <= 0.0f) {
     return true;
   }
 
-  const int base_seed =
-    (MD5_PseudoRandom(static_cast<unsigned int>(user_cmd->command_number)) & INT_MAX) + std::max(0, pellet_index);
-  int stream = base_seed;
-  constexpr float spread_scale = 0.5f;
-  offset_out->x = (spread_rand_float_valve(&stream, -spread_scale, spread_scale) +
-    spread_rand_float_valve(&stream, -spread_scale, spread_scale)) * spread;
-  offset_out->y = (spread_rand_float_valve(&stream, -spread_scale, spread_scale) +
-    spread_rand_float_valve(&stream, -spread_scale, spread_scale)) * spread;
+  valve_random_stream stream{};
+  stream.set_seed(hitscan_spread_seed(user_cmd) + std::max(0, pellet_index));
+  offset_out->x = (stream.random_float(-0.5f, 0.5f) + stream.random_float(-0.5f, 0.5f)) * spread;
+  offset_out->y = (stream.random_float(-0.5f, 0.5f) + stream.random_float(-0.5f, 0.5f)) * spread;
   return true;
 }
 

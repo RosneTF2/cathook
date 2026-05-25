@@ -25,6 +25,7 @@ V  o o  V  file: src/features/menu/config.hpp
 #include "games/tf2/sdk/aim_hitboxes.hpp"
 
 #include "core/types.hpp"
+#include "features/automation/nographics/nographics.hpp"
 
 struct button {
   enum class mode_type {
@@ -124,6 +125,7 @@ struct Aim {
   bool melee_auto_backstab = true;
   bool melee_account_ping = true;
   bool melee_ignore_razorback = true;
+  bool melee_nographics_simple_bounds = true;
   int melee_swing_extra_ticks = 0;
 
   ProjectileMode projectile_mode = ProjectileMode::DIRECT_THEN_SPLASH;
@@ -697,6 +699,9 @@ inline void reset_insider_settings_session(Config& cfg)
   enforce_insider_settings_lock(cfg);
 }
 
+static bool are_binds_disabled();
+static void reset_button_state(struct button& button);
+
 static bool is_button_raw_down(const struct button& button) {
   if (button.button == SDLK_UNKNOWN) {
     return false;
@@ -738,6 +743,11 @@ static std::string get_button_name(const int button_code) {
 }
 
 static bool is_button_active(struct button& button) {
+  if (are_binds_disabled()) {
+    reset_button_state(button);
+    return true;
+  }
+
   const bool is_down = is_button_raw_down(button);
   const bool was_pressed = is_down && !button.was_down;
 
@@ -771,6 +781,22 @@ static void reset_button_state(struct button& button) {
   button.active = false;
   button.was_down = false;
   button.last_press_time = 0.0f;
+}
+
+static constexpr bool textmode_binds_disabled() {
+#if defined(CATHOOK_TEXTMODE) && CATHOOK_TEXTMODE
+  return true;
+#else
+  return false;
+#endif
+}
+
+static bool are_binds_disabled() {
+  if constexpr (textmode_binds_disabled()) {
+    return true;
+  }
+
+  return nographics::is_enabled();
 }
 
 #endif

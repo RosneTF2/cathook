@@ -30,6 +30,10 @@ V  o o  V  file: src/features/menu/binds.hpp
 namespace cat_bind
 {
 
+inline bool disabled() {
+  return are_binds_disabled();
+}
+
 enum class value_type
 {
   boolean,
@@ -149,10 +153,18 @@ inline std::vector<std::string>& panel_label_stack() {
 }
 
 inline void push_panel_label(const std::string& name) {
+  if (disabled()) {
+    return;
+  }
+
   panel_label_stack().push_back(name);
 }
 
 inline void pop_panel_label() {
+  if (disabled()) {
+    return;
+  }
+
   if (!panel_label_stack().empty()) {
     panel_label_stack().pop_back();
   }
@@ -271,6 +283,10 @@ inline const char* mode_label(const button::mode_type mode) {
 
 template <typename value_t>
 inline void register_target(const char* target_key, const char* label, value_t* target) {
+  if (disabled()) {
+    return;
+  }
+
   const value_type target_type = get_value_type(target);
   pointer_to_key()[target] = target_key;
   key_to_pointer()[target_key] = target;
@@ -292,6 +308,10 @@ inline void register_button_target(
   button* target,
   const indicator_kind kind,
   const bool show_in_indicator = true) {
+  if (disabled()) {
+    return;
+  }
+
   if (button_entry* entry = find_button_entry(target_key)) {
     entry->target = target;
     if (entry->label.empty() || entry->label == entry->default_label) {
@@ -314,6 +334,10 @@ inline void register_button_target(
 }
 
 inline void register_builtin_targets() {
+  if (disabled()) {
+    return;
+  }
+
   std::lock_guard lock{bind_mutex()};
 
   if (targets_registered()) {
@@ -324,6 +348,10 @@ inline void register_builtin_targets() {
 }
 
 inline void register_builtin_button_targets() {
+  if (disabled()) {
+    return;
+  }
+
   std::lock_guard lock{bind_mutex()};
 
   if (button_targets_registered()) {
@@ -354,6 +382,10 @@ inline bind_entry& create_entry(const std::string& target_key, const char* label
 
 template <typename value_t>
 inline bind_entry* ensure_entry(value_t* target, const char* label) {
+  if (disabled()) {
+    return nullptr;
+  }
+
   register_builtin_targets();
   register_builtin_button_targets();
 
@@ -383,6 +415,10 @@ inline bind_entry* ensure_entry(value_t* target, const char* label) {
 }
 
 inline void request_popup(const std::string& target_key, popup_target_type target_type) {
+  if (disabled()) {
+    return;
+  }
+
   std::lock_guard lock{bind_mutex()};
 
   popup_target_key() = target_key;
@@ -433,6 +469,10 @@ inline void remove_indicator_bind(std::string target_key, popup_target_type targ
 
 template <typename value_t>
 inline void maybe_open_popup(value_t* target, const char* label) {
+  if (disabled()) {
+    return;
+  }
+
   if (!ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup) || !ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
     return;
   }
@@ -463,6 +503,10 @@ inline void sync_default(value_t* target, bind_entry* entry, bool changed) {
 }
 
 inline void bindable_checkbox(const char* label, bool* target, bool changed) {
+  if (disabled()) {
+    return;
+  }
+
   std::lock_guard lock{bind_mutex()};
 
   bind_entry* entry = ensure_entry(target, label);
@@ -474,6 +518,10 @@ inline void bindable_checkbox(const char* label, bool* target, bool changed) {
 }
 
 inline void bindable_combo_int(const char* label, int* target, bool changed, const char* const items[], int item_count) {
+  if (disabled()) {
+    return;
+  }
+
   std::lock_guard lock{bind_mutex()};
 
   bind_entry* entry = ensure_entry(target, label);
@@ -489,6 +537,10 @@ inline void bindable_combo_int(const char* label, int* target, bool changed, con
 }
 
 inline void bindable_slider_int(const char* label, int* target, bool changed, int minimum, int maximum, const char* format) {
+  if (disabled()) {
+    return;
+  }
+
   std::lock_guard lock{bind_mutex()};
 
   bind_entry* entry = ensure_entry(target, label);
@@ -503,6 +555,10 @@ inline void bindable_slider_int(const char* label, int* target, bool changed, in
 }
 
 inline void bindable_slider_float(const char* label, float* target, bool changed, float minimum, float maximum, const char* format) {
+  if (disabled()) {
+    return;
+  }
+
   std::lock_guard lock{bind_mutex()};
 
   bind_entry* entry = ensure_entry(target, label);
@@ -517,6 +573,10 @@ inline void bindable_slider_float(const char* label, float* target, bool changed
 }
 
 inline void handle_input(SDL_Event* event) {
+  if (disabled()) {
+    return;
+  }
+
   std::lock_guard lock{bind_mutex()};
 
   register_builtin_targets();
@@ -552,6 +612,24 @@ inline void handle_input(SDL_Event* event) {
 inline void run() {
   std::lock_guard lock{bind_mutex()};
 
+  if (disabled()) {
+    for (bind_entry& entry : entries()) {
+      if (entry.target != nullptr && entry.has_default) {
+        write_value(entry.target, entry.type, entry.default_value);
+      }
+      entry.active = false;
+      reset_button_state(entry.trigger);
+    }
+
+    for (button_entry& entry : button_entries()) {
+      if (entry.target != nullptr) {
+        reset_button_state(*entry.target);
+      }
+    }
+
+    return;
+  }
+
   register_builtin_targets();
   register_builtin_button_targets();
 
@@ -579,6 +657,10 @@ inline void run() {
 }
 
 inline void draw_popup() {
+  if (disabled()) {
+    return;
+  }
+
   std::lock_guard lock{bind_mutex()};
 
   if (popup_open_requested()) {
@@ -734,6 +816,10 @@ inline const std::vector<bind_entry>& indicator_entries() {
 inline std::vector<indicator_row> collect_indicator_rows() {
   std::lock_guard lock{bind_mutex()};
 
+  if (disabled()) {
+    return {};
+  }
+
   register_builtin_targets();
   register_builtin_button_targets();
 
@@ -794,6 +880,10 @@ inline std::vector<indicator_row> collect_indicator_rows() {
 inline void save_to_store(cathook::core::config_store* store) {
   std::lock_guard lock{bind_mutex()};
 
+  if (disabled()) {
+    return;
+  }
+
   if (store == nullptr) {
     return;
   }
@@ -834,6 +924,10 @@ inline void save_to_store(cathook::core::config_store* store) {
 }
 
 inline bool save(cathook::core::config_store* store, const std::string_view name) {
+  if (disabled()) {
+    return true;
+  }
+
   if (store == nullptr) {
     return false;
   }
@@ -853,6 +947,10 @@ inline bool save(cathook::core::config_store* store) {
 
 inline void load_from_store(cathook::core::config_store* store) {
   std::lock_guard lock{bind_mutex()};
+
+  if (disabled()) {
+    return;
+  }
 
   if (store == nullptr) {
     return;
@@ -923,6 +1021,10 @@ inline void load_from_store(cathook::core::config_store* store) {
 }
 
 inline bool load(cathook::core::config_store* store) {
+  if (disabled()) {
+    return true;
+  }
+
   if (store == nullptr) {
     return false;
   }
@@ -938,6 +1040,10 @@ inline bool load(cathook::core::config_store* store) {
 }
 
 inline bool delete_file(cathook::core::config_store* store, const std::string_view name) {
+  if (disabled()) {
+    return true;
+  }
+
   if (store == nullptr) {
     return false;
   }

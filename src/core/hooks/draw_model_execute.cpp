@@ -16,6 +16,7 @@ V  o o  V  file: src/core/hooks/draw_model_execute.cpp
 #include "core/types.hpp"
 #include "core/assert.hpp"
 
+#include "features/automation/nographics/nographics.hpp"
 #include "features/menu/config.hpp"
 #include "features/visuals/glow/player_model_glow.hpp"
 
@@ -48,6 +49,10 @@ struct ModelRenderInfo {
 };
 
 void draw_model_execute_hook(void* me, void* state, ModelRenderInfo* pinfo, VMatrix* bone_to_world) {  
+  if (nographics::should_skip_rendering_hooks()) {
+    return;
+  }
+
   if (pinfo == nullptr) {
     DME_RETURN;
   }

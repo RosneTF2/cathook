@@ -378,6 +378,20 @@ inline bool projectile_solution_ready(Player* localplayer,
   projectile_sim_profile profile = projectile_sim_profile_for_weapon(localplayer, weapon);
   if (!profile.valid || profile.params.speed <= 0.0f || candidate.projectile_intercept_time <= 0.0f) return false;
 
+  if (aimbot_simple_simulation_enabled() && candidate.projectile_direct) {
+    LocalPredictionInterceptResult adjusted_intercept{};
+    adjusted_intercept.valid = true;
+    adjusted_intercept.has_target_base_origin = candidate.projectile_has_target_base_origin;
+    adjusted_intercept.intercept_time = candidate.projectile_intercept_time;
+    adjusted_intercept.intercept_distance = candidate.distance;
+    adjusted_intercept.miss_distance = candidate.projectile_miss_distance;
+    adjusted_intercept.aim_angles = applied_view_angles;
+    adjusted_intercept.target_origin = candidate.aim_position;
+    adjusted_intercept.target_base_origin = candidate.projectile_target_base_origin;
+    adjusted_intercept.target_offset = candidate.projectile_target_offset;
+    return proj_aim_trace_simple_path(localplayer, candidate.player, weapon, adjusted_intercept);
+  }
+
   profile.params.max_time = std::min(
     profile.params.max_time,
     std::max(candidate.projectile_intercept_time + profile.params.time_step, profile.params.time_step));

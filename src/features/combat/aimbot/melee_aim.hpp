@@ -95,6 +95,30 @@ inline Vec3 predict_local_swing_start(Player* localplayer, float swing_time) {
   return path.positions.back() + localplayer->get_view_offset();
 }
 
+inline Vec3 player_velocity(Player* player) {
+  if (player == nullptr) {
+    return Vec3{};
+  }
+
+  Vec3 velocity = local_prediction_estimate_entity_velocity(player);
+  if (local_prediction_vector_length(velocity) <= 0.001f) {
+    velocity = player->get_velocity();
+  }
+  return velocity;
+}
+
+inline Vec3 predict_local_swing_start_simple(Player* localplayer, float swing_time) {
+  if (localplayer == nullptr) {
+    return Vec3{};
+  }
+  const Vec3 shoot_pos = localplayer->get_shoot_pos();
+  if (swing_time < 0.001f) {
+    return shoot_pos;
+  }
+  const float lead_time = std::min(swing_time, 0.10f);
+  return shoot_pos + (player_velocity(localplayer) * lead_time);
+}
+
 inline Vec3 clamp_point_to_aabb(const Vec3& p, const Vec3& mins, const Vec3& maxs) {
   return Vec3{
     std::clamp(p.x, mins.x, maxs.x),
@@ -240,6 +264,53 @@ struct swing_sample {
   int tick_count = 0;
 };
 
+struct swing_sample_set {
+  std::array<swing_sample, 2> samples{};
+  size_t count = 0;
+};
+
+inline void add_swing_sample(swing_sample_set* out,
+  Player* target,
+  const Vec3& origin,
+  const Vec3& mins,
+  const Vec3& maxs,
+  float at_time) {
+  if (out == nullptr || target == nullptr || out->count >= out->samples.size()) {
+    return;
+  }
+
+  swing_sample& sample = out->samples[out->count++];
+  sample.valid = true;
+  sample.origin = origin;
+  sample.mins = mins;
+  sample.maxs = maxs;
+  sample.at_time = at_time;
+  sample.tick_count = local_prediction_time_to_ticks(target->get_simulation_time() + at_time + backtrack::interpolation_time());
+}
+
+inline swing_sample_set build_target_samples_simple(Player* target, float swing_time) {
+  swing_sample_set out{};
+  if (target == nullptr) {
+    return out;
+  }
+
+  const Vec3 mins = target->get_player_mins(target->is_ducking());
+  const Vec3 maxs = target->get_player_maxs(target->is_ducking());
+  const Vec3 origin = target->get_origin();
+  add_swing_sample(&out, target, origin, mins, maxs, 0.0f);
+
+  const float effective_horizon = std::max(swing_time, static_cast<float>(TICK_INTERVAL));
+  const Vec3 velocity = player_velocity(target);
+  if (effective_horizon > 0.001f && local_prediction_vector_length(velocity) > 0.001f) {
+    const Vec3 predicted_origin = origin + (velocity * effective_horizon);
+    if (aimbot_distance_squared(origin, predicted_origin) > 0.01f) {
+      add_swing_sample(&out, target, predicted_origin, mins, maxs, effective_horizon);
+    }
+  }
+
+  return out;
+}
+
 inline std::vector<swing_sample> build_target_samples(Player* target, float swing_time) {
   std::vector<swing_sample> out;
   if (target == nullptr) {
@@ -329,6 +400,9 @@ inline float melee_aim_impact_time(Player* localplayer, Weapon* weapon) {
 }
 
 inline Vec3 melee_aim_local_swing_start(Player* localplayer, float swing_time) {
+  if (aimbot_simple_simulation_enabled()) {
+    return melee_aim_detail::predict_local_swing_start_simple(localplayer, swing_time);
+  }
   return melee_aim_detail::predict_local_swing_start(localplayer, swing_time);
 }
 
@@ -363,6 +437,115 @@ inline bool melee_aim_trace_candidate(Player* localplayer,
   return melee_aim_trace_candidate(localplayer, weapon, target, target_origin, localplayer->get_shoot_pos(), aim_angles);
 }
 
+inline aimbot_candidate melee_aim_find_simple_candidate(Player* localplayer,
+  Weapon* weapon,
+  Player* player,
+  const Vec3& original_view_angles) {
+  aimbot_candidate candidate{};
+  if (localplayer == nullptr || weapon == nullptr || player == nullptr) {
+    return candidate;
+  }
+
+  const bool knife = melee_aim_detail::is_knife(weapon);
+  const bool need_backstab = knife && config.aimbot.melee_auto_backstab;
+  if (need_backstab && melee_aim_detail::razorback_blocks_backstab(player)) {
+    return candidate;
+  }
+
+  const float swing_time = melee_aim_detail::effective_swing_time(localplayer, weapon);
+  const Vec3 swing_start = melee_aim_detail::predict_local_swing_start_simple(localplayer, swing_time);
+  if (!aimbot_vec3_is_finite(swing_start)) {
+    return candidate;
+  }
+
+  const bool simple_bounds = config.aimbot.melee_nographics_simple_bounds;
+  const melee_aim_detail::swing_sample_set samples = melee_aim_detail::build_target_samples_simple(player, swing_time);
+  if (samples.count == 0) {
+    return candidate;
+  }
+
+  aimbot_point hitbox_point{};
+  if (!simple_bounds) {
+    hitbox_point = aimbot_find_best_point(
+      localplayer,
+      player,
+      weapon,
+      original_view_angles,
+      config.aimbot.melee_hitboxes,
+      false);
+  }
+
+  melee_aim_detail::attempt_result best;
+  const melee_aim_detail::swing_sample* best_sample = nullptr;
+
+  for (size_t sample_index = 0; sample_index < samples.count; ++sample_index) {
+    const melee_aim_detail::swing_sample& sample = samples.samples[sample_index];
+    const Vec3 abs_mins = sample.origin + sample.mins;
+    const Vec3 abs_maxs = sample.origin + sample.maxs;
+
+    std::array<Vec3, 4> candidates{};
+    int candidate_count = 0;
+
+    if (need_backstab) {
+      const float z = std::clamp(swing_start.z, abs_mins.z, abs_maxs.z);
+      candidates[candidate_count++] = Vec3{sample.origin.x, sample.origin.y, z};
+    }
+
+    candidates[candidate_count++] = melee_aim_detail::clamp_point_to_aabb(swing_start, abs_mins, abs_maxs);
+
+    if (!simple_bounds && hitbox_point.valid) {
+      const Vec3 offset = hitbox_point.position - player->get_origin();
+      candidates[candidate_count++] = sample.origin + offset;
+    }
+
+    candidates[candidate_count++] = (abs_mins + abs_maxs) * 0.5f;
+
+    for (int i = 0; i < candidate_count; ++i) {
+      melee_aim_detail::attempt_result attempt = melee_aim_detail::try_aim_point(
+        localplayer,
+        weapon,
+        player,
+        sample,
+        candidates[i],
+        swing_start,
+        original_view_angles,
+        need_backstab);
+      if (!attempt.valid) {
+        continue;
+      }
+      if (!best.valid || attempt.fov < best.fov) {
+        best = attempt;
+        best_sample = &sample;
+      }
+    }
+  }
+
+  if (!best.valid || best_sample == nullptr) {
+    return candidate;
+  }
+
+  candidate.entity = player;
+  candidate.player = player;
+  candidate.preferred = has_aimbot_preference(player);
+  candidate.bone = hitbox_point.valid ? hitbox_point.bone : aimbot_default_bone(localplayer, player, weapon);
+  candidate.hitbox = hitbox_point.valid ? hitbox_point.hitbox : aim_hitbox_pelvis;
+  candidate.aim_position = best.aim_position;
+  candidate.aim_angles = best.aim_angles;
+  candidate.fov = best.fov;
+  candidate.distance = best.distance;
+  candidate.health = player->get_health();
+  candidate.visible = true;
+  candidate.melee_has_prediction = true;
+  candidate.melee_impact_time = best_sample->at_time;
+  candidate.melee_swing_start = swing_start;
+  candidate.melee_target_origin = best_sample->origin;
+  candidate.simulation_time = player->get_simulation_time();
+  candidate.tick_count = best_sample->tick_count > 0
+    ? best_sample->tick_count
+    : local_prediction_time_to_ticks(candidate.simulation_time + backtrack::interpolation_time());
+  return candidate;
+}
+
 inline aimbot_candidate melee_aim_find_candidate(Player* localplayer,
   Weapon* weapon,
   Player* player,
@@ -371,6 +554,10 @@ inline aimbot_candidate melee_aim_find_candidate(Player* localplayer,
   aimbot_candidate candidate{};
   if (localplayer == nullptr || weapon == nullptr || player == nullptr) {
     return candidate;
+  }
+
+  if (aimbot_simple_simulation_enabled()) {
+    return melee_aim_find_simple_candidate(localplayer, weapon, player, original_view_angles);
   }
 
   const bool knife = melee_aim_detail::is_knife(weapon);

@@ -140,14 +140,34 @@ constexpr const char* base_animating_dispatch_anim_events =
   "48 85 F6 0F 84 ? ? ? ? 55 48 89 E5 41 57 41 56 41 55 41 54 49 89 FC 53 48 83 EC ? 83 BF ? ? ? ? ? 0F 84 ? ? ? ? 66 83 BF ? ? ? ? ?";
 constexpr const char* cl_decay_lights =
   "55 48 8D 3D ? ? ? ? 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC ? E8 ? ? ? ? 66 0F EF C9";
+constexpr const char* engine_fps_max_min_clamp =
+  "F3 0F 10 40 54 0F 2F 05 ? ? ? ? 0F 83 ? ? ? ? 48 8D 3D";
 constexpr const char* mod_load_lighting =
   "55 48 89 E5 41 54 4C 8B 25 ? ? ? ? 53 48 63 37 85 F6 75 ? 49 C7 84 24 ? ? ? ? ? ? ? ?";
 constexpr const char* mod_load_worldlights =
   "48 8B 0D ? ? ? ? 48 C7 81 ? ? ? ? ? ? ? ? 48 63 07 85 C0 0F 84 ? ? ? ?";
+constexpr const char* mod_load_texinfo_material_branch =
+  "41 8B 44 24 10 66 89 43 48 31 C0 85 D2 66 89 43 4A 0F 85 ? ? ? ? 48 8D 05 ? ? ? ? 48 8B 38 48 89 7B 50";
 constexpr const char* sprite_load_model =
   "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 89 F3 48 81 EC ? ? ? ? 4C 8D 35 ? ? ? ?";
 constexpr const char* overlay_mgr_load_overlays =
   "55 BE ? ? ? ? 48 89 E5 41 57 41 56 4C 8D B5 ? ? ? ? 41 55 41 54 53 48 81 EC ? ? ? ? 48 89 BD ? ? ? ? 4C 89 F7";
+constexpr const char* shadow_mgr_render_shadows =
+  "55 31 C0 48 89 E5 41 57 41 56 41 55 49 89 F5 41 54 49 89 FC 53 48 83 EC 28 48 8B 1D ? ? ? ? 48 C7 45 B0 00 00 00 00";
+constexpr const char* static_prop_mgr_draw_static_props =
+  "55 31 C0 48 89 E5 41 57 41 56 41 89 D6 41 55 49 89 F5 41 54 49 89 FC 53 89 CB 48 83 EC 38 4C 8B 3D ? ? ? ? 44 89 45 AC";
+constexpr const char* engine_sound_emit_sound_internal =
+  "55 48 89 E5 41 57 41 89 D7 41 56 41 55 41 54 49 89 F4 53 48 81 EC B8 00 00 00 8B 45 40 89 8D 30 FF FF FF 48 8B 1D ? ? ? ?";
+constexpr const char* s_precache_sound =
+  "55 48 89 E5 41 55 49 89 FD 41 54 53 48 83 EC 28 48 8B 1D ? ? ? ? 48 C7 45 C8 00 00 00 00 4C 8B 23 4D 85 E4 0F 84 ? ? ? ?";
+constexpr const char* svc_bspdecal_process =
+  "55 48 89 E5 53 48 89 F3 48 83 EC 08 8B 56 38 85 D2 75 ? 48 8D 05 ? ? ? ? 48 8B 08 48 85 C9 0F 84 ? ? ? ?";
+constexpr const char* r_draw_decals_all_0 =
+  "55 48 89 E5 41 57 49 89 FF 41 56 48 8D 85 B8 F3 FF FF 41 55 41 54 53 48 89 CB 48 81 EC E8 0F 00 00 48 89 85 00 F0 FF FF 48 89 45 C0 48 8B 05 ? ? ? ? 48 89 BD 08 F0 FF FF";
+constexpr const char* r_draw_decals_all_1 =
+  "55 48 89 E5 41 57 48 8D 85 B8 F3 FF FF 41 56 41 55 41 54 4C 63 E2 53 48 63 DE 48 81 EC 18 10 00 00 48 89 85 E0 EF FF FF 48 89 45 C0 48 8B 05 ? ? ? ? F3 0F 11 85 04 F0 FF FF";
+constexpr const char* v_render_view =
+  "55 31 C0 48 89 E5 41 56 41 55 41 54 53 48 83 EC 40 4C 8B 2D ? ? ? ? 48 C7 45 A0 00 00 00 00 49 8B 7D 18 48 85 FF 74 ? 48 83 EC 08 45 31 C0 31 C9 48 8D 05 ? ? ? ? 31 D2";
 constexpr const char* material_system_begin_frame =
   "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 89 FB 48 83 EC ? F3 0F 11 85 ? ? ? ?";
 constexpr const char* material_system_texture_load_bits =

@@ -24,6 +24,7 @@ V  o o  V  file: src/features/combat/aimbot/aim_utils.hpp
 #include "core/ipc/ipc_client.hpp"
 #include "core/math/math.hpp"
 
+#include "features/automation/nographics/nographics.hpp"
 #include "features/menu/config.hpp"
 #include "features/movement/local_prediction/local_prediction.hpp"
 
@@ -86,6 +87,10 @@ inline static float aimbot_scoped_begin_time = 0.0f;
 
 inline bool aimbot_vec3_is_finite(const Vec3& value) {
   return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+inline bool aimbot_simple_simulation_enabled() {
+  return nographics::is_enabled();
 }
 
 inline void reset_aimbot_scope_timing() {
@@ -242,19 +247,21 @@ inline int aimbot_build_local_hitbox_points(const studio_box& hitbox,
     std::max(extent_raw.z - subtract, extent_raw.z * aimbot_effective_bone_size_min_scale())
   };
 
-  if (std::fabs(extent.x) > 1.0f) {
-    aimbot_add_local_hitbox_point(points, &point_count, max_points, center + Vec3{extent.x * scale, 0.0f, 0.0f});
-    aimbot_add_local_hitbox_point(points, &point_count, max_points, center - Vec3{extent.x * scale, 0.0f, 0.0f});
-  }
-
-  if (std::fabs(extent.y) > 1.0f) {
-    aimbot_add_local_hitbox_point(points, &point_count, max_points, center + Vec3{0.0f, extent.y * scale, 0.0f});
-    aimbot_add_local_hitbox_point(points, &point_count, max_points, center - Vec3{0.0f, extent.y * scale, 0.0f});
-  }
-
-  if (std::fabs(extent.z) > 1.0f) {
-    aimbot_add_local_hitbox_point(points, &point_count, max_points, center + Vec3{0.0f, 0.0f, extent.z * scale});
-    aimbot_add_local_hitbox_point(points, &point_count, max_points, center - Vec3{0.0f, 0.0f, extent.z * scale});
+  const Vec3 scaled_extent = extent * scale;
+  if (std::fabs(scaled_extent.x) > 1.0f &&
+      std::fabs(scaled_extent.y) > 1.0f &&
+      std::fabs(scaled_extent.z) > 1.0f) {
+    for (const float x_sign : { -1.0f, 1.0f }) {
+      for (const float y_sign : { -1.0f, 1.0f }) {
+        for (const float z_sign : { -1.0f, 1.0f }) {
+          aimbot_add_local_hitbox_point(
+            points,
+            &point_count,
+            max_points,
+            center + Vec3{ scaled_extent.x * x_sign, scaled_extent.y * y_sign, scaled_extent.z * z_sign });
+        }
+      }
+    }
   }
 
   return point_count;
@@ -532,13 +539,14 @@ inline aimbot_point aimbot_find_best_point(Player* localplayer,
             continue;
           }
 
-          Vec3 local_points[8]{};
+          constexpr int max_local_points = 10;
+          Vec3 local_points[max_local_points]{};
           const int point_count = aimbot_build_local_hitbox_points(
             *hitbox,
             bone_to_world[hitbox->bone],
             shoot_pos,
             local_points,
-            8,
+            max_local_points,
             require_visibility);
 
           for (int point_index = 0; point_index < point_count; ++point_index) {

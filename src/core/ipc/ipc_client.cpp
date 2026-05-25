@@ -23,6 +23,7 @@ V  o o  V  file: src/core/ipc/ipc_client.cpp
 #include "games/tf2/sdk/interfaces/steam_runtime.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <charconv>
@@ -35,7 +36,6 @@ V  o o  V  file: src/core/ipc/ipc_client.cpp
 #include <string>
 #include <string_view>
 #include <thread>
-#include <unordered_set>
 #include <utility>
 #include <unistd.h>
 #include <vector>
@@ -67,7 +67,9 @@ std::mutex ipc_mutex{};
 std::thread ipc_worker{};
 std::atomic_bool ipc_worker_running = false;
 std::shared_mutex local_ipc_friends_mutex{};
-std::unordered_set<std::uint32_t> local_ipc_friends{};
+constexpr std::size_t max_local_ipc_friends = static_cast<std::size_t>(max_peers);
+std::array<std::uint32_t, max_local_ipc_friends> local_ipc_friends{};
+std::size_t local_ipc_friend_count = 0;
 std::vector<pending_command> deferred_commands{};
 constexpr std::size_t max_deferred_commands = command_ring_size;
 
@@ -241,8 +243,8 @@ void reset_game_telemetry_locked(user_data_s& data)
 
 void refresh_local_ipc_friends_locked()
 {
-  std::unordered_set<std::uint32_t> refreshed_friends{};
-  refreshed_friends.reserve(max_peers);
+  std::array<std::uint32_t, max_local_ipc_friends> refreshed_friends{};
+  std::size_t refreshed_friend_count = 0;
 
   if (ipc_state != nullptr)
   {
@@ -274,21 +276,28 @@ void refresh_local_ipc_friends_locked()
       }
 
       const auto friend_id = ipc_state->peer_user_data[index].friendid;
-      if (friend_id != 0)
+      if (friend_id != 0 && refreshed_friend_count < refreshed_friends.size())
       {
-        refreshed_friends.insert(friend_id);
+        auto refreshed_friend_end = refreshed_friends.begin() + static_cast<std::ptrdiff_t>(refreshed_friend_count);
+        if (std::find(refreshed_friends.begin(), refreshed_friend_end, friend_id) == refreshed_friend_end)
+        {
+          refreshed_friends[refreshed_friend_count] = friend_id;
+          ++refreshed_friend_count;
+        }
       }
     }
   }
 
   std::unique_lock lock{local_ipc_friends_mutex};
-  local_ipc_friends.swap(refreshed_friends);
+  local_ipc_friends = refreshed_friends;
+  local_ipc_friend_count = refreshed_friend_count;
 }
 
 void clear_local_ipc_friends()
 {
   std::unique_lock lock{local_ipc_friends_mutex};
-  local_ipc_friends.clear();
+  local_ipc_friends.fill(0);
+  local_ipc_friend_count = 0;
 }
 
 void mark_peer_free()
@@ -1072,7 +1081,8 @@ bool is_local_ipc_friend(std::uint32_t friend_id)
   }
 
   std::shared_lock lock{local_ipc_friends_mutex};
-  return local_ipc_friends.find(friend_id) != local_ipc_friends.end();
+  auto local_ipc_friend_end = local_ipc_friends.begin() + static_cast<std::ptrdiff_t>(local_ipc_friend_count);
+  return std::find(local_ipc_friends.begin(), local_ipc_friend_end, friend_id) != local_ipc_friend_end;
 }
 
 bool is_excess_ipc_bot_on_current_server(int max_bots)
