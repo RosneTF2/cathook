@@ -297,24 +297,20 @@ inline float proj_aim_direct_trace_point_tolerance(Weapon* weapon, const project
   return std::max(10.0f, hull_radius + 8.0f);
 }
 
-inline bool proj_aim_trace_path_segment_loop(Player* target,
+inline bool proj_aim_trace_path_segment_loop(Player* localplayer,
+  Player* target,
   Weapon* weapon,
   const projectile_sim_profile& sim_profile,
   const LocalPredictionInterceptResult& intercept,
   const std::vector<LocalPredictionProjectileStep>& steps,
   size_t step_count) {
-  if (target == nullptr || weapon == nullptr || engine_trace == nullptr || steps.size() < 2 || step_count < 2 ||
+  if (localplayer == nullptr || target == nullptr || weapon == nullptr || engine_trace == nullptr || steps.size() < 2 || step_count < 2 ||
       step_count > steps.size()) {
     return false;
   }
 
   const Vec3 hull_mins = sim_profile.hull * -1.0f;
   const Vec3 hull_maxs = sim_profile.hull;
-
-  // accept "reaches target" via the predicted player AABB (inflated by hull) OR a generous miss-distance
-  // tolerance to the predicted intercept point. the previous point-only tolerance was tighter than
-  // projectile_sim_direct_tolerance, so valid intercepts whose closest approach was 12-16 units off the
-  // hitbox center always failed here, causing the projectile to "shoot around" the player.
   const float hull_radius = std::max(
     proj_aim_hull_radius_for_weapon(weapon),
     std::max(sim_profile.hull.x, std::max(sim_profile.hull.y, sim_profile.hull.z)));
@@ -324,23 +320,13 @@ inline bool proj_aim_trace_path_segment_loop(Player* target,
     : intercept.target_origin;
   const Vec3 target_mins = target->get_player_mins(target->is_ducking()) + predicted_origin - inflate;
   const Vec3 target_maxs = target->get_player_maxs(target->is_ducking()) + predicted_origin + inflate;
-  const float point_tolerance = std::max(
-    proj_aim_direct_trace_point_tolerance(weapon, sim_profile),
-    projectile_sim_direct_tolerance(sim_profile) + hull_radius);
 
   for (size_t index = 1; index < step_count; ++index) {
     const Vec3 start = steps[index - 1].position;
     const Vec3 end = steps[index].position;
 
-    float target_point_fraction = 1.0f;
-    bool reaches_target_point =
-      proj_aim_segment_point_distance(start, end, intercept.target_origin, &target_point_fraction) <= point_tolerance;
-    float aabb_enter_fraction = 1.0f;
-    if (aimbot_segment_aabb_enter_fraction(start, end, target_mins, target_maxs, &aabb_enter_fraction)) {
-      // entering the predicted player box is the strongest signal we'd hit; prefer it for fraction comparison
-      target_point_fraction = std::min(target_point_fraction, aabb_enter_fraction);
-      reaches_target_point = true;
-    }
+    float target_enter_fraction = 1.0f;
+    const bool reaches_target = aimbot_segment_aabb_enter_fraction(start, end, target_mins, target_maxs, &target_enter_fraction);
 
     trace_t trace{};
     if (!projectile_trace_ray(
@@ -349,17 +335,18 @@ inline bool proj_aim_trace_path_segment_loop(Player* target,
         sim_profile.hull_trace ? &hull_mins : nullptr,
         sim_profile.hull_trace ? &hull_maxs : nullptr,
         projectile_trace_contract::world_block,
-        nullptr,
+        localplayer,
         -1,
         &trace)) {
       return false;
     }
-    if (!projectile_trace_clear(trace, 0.97f) &&
-        (!reaches_target_point || trace.fraction + 0.001f < target_point_fraction)) {
+    if (trace.start_solid || trace.all_solid) {
       return false;
     }
-
-    if (reaches_target_point) {
+    if (trace.fraction < 1.0f && (!reaches_target || trace.fraction + 0.001f < target_enter_fraction)) {
+      return false;
+    }
+    if (reaches_target) {
       return true;
     }
   }
@@ -448,7 +435,7 @@ inline bool proj_aim_trace_path(Player* localplayer,
   size_t reuse_step_count = 0;
   if (proj_aim_intercept_trace_matches_launch(launch, intercept, sim_profile, &reuse_step_count)) {
     ++proj_aim_budget().reuse_trace_hits;
-    return proj_aim_trace_path_segment_loop(target, weapon, sim_profile, intercept, intercept.trace.steps, reuse_step_count);
+    return proj_aim_trace_path_segment_loop(localplayer, target, weapon, sim_profile, intercept, intercept.trace.steps, reuse_step_count);
   }
 
   ++proj_aim_budget().fallback_sim_count;
@@ -472,7 +459,7 @@ inline bool proj_aim_trace_path(Player* localplayer,
     });
   }
 
-  return proj_aim_trace_path_segment_loop(target, weapon, sim_profile, intercept, fallback_steps, fallback_steps.size());
+  return proj_aim_trace_path_segment_loop(localplayer, target, weapon, sim_profile, intercept, fallback_steps, fallback_steps.size());
 }
 
 inline bool proj_aim_trace_simple_path(Player* localplayer,
@@ -498,68 +485,27 @@ inline bool proj_aim_trace_simple_path(Player* localplayer,
     return false;
   }
 
-  const Vec3 hull_mins = sim_profile.hull * -1.0f;
-  const Vec3 hull_maxs = sim_profile.hull;
-  const float hull_radius = std::max(
-    proj_aim_hull_radius_for_weapon(weapon),
-    std::max(sim_profile.hull.x, std::max(sim_profile.hull.y, sim_profile.hull.z)));
-  const Vec3 inflate{hull_radius, hull_radius, hull_radius};
-  const Vec3 predicted_origin = intercept.has_target_base_origin
-    ? intercept.target_base_origin
-    : intercept.target_origin;
-  const Vec3 target_mins = target->get_player_mins(target->is_ducking()) + predicted_origin - inflate;
-  const Vec3 target_maxs = target->get_player_maxs(target->is_ducking()) + predicted_origin + inflate;
-  const float point_tolerance = std::max(
-    proj_aim_direct_trace_point_tolerance(weapon, sim_profile),
-    projectile_sim_direct_tolerance(sim_profile) + hull_radius);
-
-  std::array<Vec3, 4> points{};
-  int point_count = 0;
-  points[point_count++] = launch.origin;
-  const float middle_time = intercept.intercept_time * 0.5f;
-  if (middle_time > sim_profile.params.time_step) {
-    points[point_count++] = projectile_sim_position_at_time(launch, sim_profile, middle_time);
-  }
-  points[point_count++] = projectile_sim_position_at_time(launch, sim_profile, intercept.intercept_time);
-  if (aimbot_distance_squared(points[point_count - 1], intercept.target_origin) > point_tolerance * point_tolerance) {
-    points[point_count++] = intercept.target_origin;
+  const projectile_sim_result sim_result = projectile_sim_run(
+    launch,
+    sim_profile,
+    localplayer,
+    target,
+    projectile_sim_trace_mode::blocking_non_player);
+  if (!sim_result.valid || sim_result.steps.size() < 2) {
+    return false;
   }
 
-  for (int index = 1; index < point_count; ++index) {
-    const Vec3 start = points[index - 1];
-    const Vec3 end = points[index];
-    float target_point_fraction = 1.0f;
-    bool reaches_target_point =
-      proj_aim_segment_point_distance(start, end, intercept.target_origin, &target_point_fraction) <= point_tolerance;
-    float aabb_enter_fraction = 1.0f;
-    if (aimbot_segment_aabb_enter_fraction(start, end, target_mins, target_maxs, &aabb_enter_fraction)) {
-      target_point_fraction = std::min(target_point_fraction, aabb_enter_fraction);
-      reaches_target_point = true;
-    }
-
-    trace_t trace{};
-    if (!projectile_trace_ray(
-        start,
-        end,
-        sim_profile.hull_trace ? &hull_mins : nullptr,
-        sim_profile.hull_trace ? &hull_maxs : nullptr,
-        projectile_trace_contract::world_block,
-        localplayer,
-        -1,
-        &trace)) {
-      return false;
-    }
-    if (!projectile_trace_clear(trace, 0.97f) &&
-        (!reaches_target_point || trace.fraction + 0.001f < target_point_fraction)) {
-      return false;
-    }
-
-    if (reaches_target_point) {
-      return true;
-    }
+  std::vector<LocalPredictionProjectileStep> steps{};
+  steps.reserve(sim_result.steps.size());
+  for (const projectile_sim_step& step : sim_result.steps) {
+    steps.push_back({
+      .time = step.time,
+      .position = step.position,
+      .velocity = step.velocity
+    });
   }
 
-  return false;
+  return proj_aim_trace_path_segment_loop(localplayer, target, weapon, sim_profile, intercept, steps, steps.size());
 }
 
 inline bool proj_aim_trace_splash_path(Player* localplayer,

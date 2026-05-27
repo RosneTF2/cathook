@@ -852,23 +852,32 @@ inline bool aimbot_aim_at_enabled(uint32_t flag) {
   return (config.aimbot.aim_at & flag) != 0;
 }
 
-inline bool aimbot_is_mvm_robot(Player* player) {
+inline bool aimbot_has_mvm_bot_model(Player* player) {
   if (player == nullptr) {
     return false;
   }
 
   const char* model_name = player->get_model_name();
-  if (strstr(model_name, "models/bots/") != nullptr) {
-    return true;
+  return strstr(model_name, "models/bots/") != nullptr;
+}
+
+inline bool aimbot_is_fake_player(Player* player) {
+  if (player == nullptr || engine == nullptr) {
+    return false;
   }
 
   player_info info{};
-  return engine != nullptr && engine->get_player_info(player->get_index(), &info) && info.fakeplayer;
+  return engine->get_player_info(player->get_index(), &info) && info.fakeplayer;
 }
 
 inline bool aimbot_should_target_player_type(Player* player) {
-  if (aimbot_is_mvm_robot(player)) {
+  if (aimbot_has_mvm_bot_model(player)) {
     return aimbot_aim_at_enabled(Aim::aim_at_mvm_robots);
+  }
+
+  if (aimbot_is_fake_player(player)) {
+    return aimbot_aim_at_enabled(Aim::aim_at_enemies) ||
+      aimbot_aim_at_enabled(Aim::aim_at_mvm_robots);
   }
 
   return aimbot_aim_at_enabled(Aim::aim_at_enemies);

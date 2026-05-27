@@ -706,6 +706,12 @@ inline projectile_sim_profile projectile_sim_profile_for_weapon(Player* localpla
   profile.fire_setup_mode = projectile_sim_uses_pipe_fire_setup(weapon)
     ? projectile_sim_fire_setup_mode::pipe_style
     : projectile_sim_fire_setup_mode::traced_forward;
+  profile.forward_redirect = profile.fire_setup_mode == projectile_sim_fire_setup_mode::traced_forward ? 2000.0f : 0.0f;
+  profile.forward_cutoff = profile.fire_setup_mode == projectile_sim_fire_setup_mode::traced_forward ? 0.1f : 0.0f;
+  if (weapon->get_def_id() == Pyro_m_DragonsFury) {
+    profile.forward_redirect = std::max(profile.params.speed * profile.params.max_time, 1.0f);
+    profile.forward_cutoff = 1.0f;
+  }
   profile.spawn_trace_mode = profile.fire_setup_mode == projectile_sim_fire_setup_mode::pipe_style
     ? projectile_sim_spawn_trace_mode::hull
     : projectile_sim_spawn_trace_mode::line;
@@ -770,19 +776,21 @@ inline projectile_sim_launch projectile_sim_build_launch_from_angles(Player* loc
 
   Vec3 launch_direction{};
   if (profile.fire_setup_mode == projectile_sim_fire_setup_mode::traced_forward) {
-    Vec3 end_pos = shoot_pos + (forward * 2000.0f);
-    trace_t trace{};
-    const bool traced = projectile_trace_ray(
-      shoot_pos,
-      end_pos,
-      nullptr,
-      nullptr,
-      projectile_trace_contract::fire_setup,
-      localplayer->to_entity(),
-      static_cast<int>(localplayer->get_team()),
-      &trace);
-    if (traced && trace.fraction > 0.1f && trace.fraction < 1.0f && !trace.start_solid) {
-      end_pos = trace.endpos;
+    Vec3 end_pos = shoot_pos + (forward * std::max(profile.forward_redirect, 1.0f));
+    if (profile.forward_cutoff < 1.0f) {
+      trace_t trace{};
+      const bool traced = projectile_trace_ray(
+        shoot_pos,
+        end_pos,
+        nullptr,
+        nullptr,
+        projectile_trace_contract::fire_setup,
+        localplayer->to_entity(),
+        static_cast<int>(localplayer->get_team()),
+        &trace);
+      if (traced && trace.fraction > profile.forward_cutoff && trace.fraction < 1.0f && !trace.start_solid) {
+        end_pos = trace.endpos;
+      }
     }
 
     launch_direction = local_prediction_normalize(end_pos - muzzle_pos);

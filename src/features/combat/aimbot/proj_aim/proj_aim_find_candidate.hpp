@@ -458,6 +458,14 @@ inline aimbot_candidate proj_aim_find_candidate(Player* localplayer, Weapon* wea
   }
 
   const bool direct_confident = proj_aim_direct_candidate_confident(profile, direct_candidate);
+  if (config.aimbot.projectile_mode == Aim::ProjectileMode::DIRECT_THEN_SPLASH && direct_candidate.player != nullptr) {
+    if (config.aimbot.projectile_debug) {
+      proj_aim_last_direct_history = std::move(direct_history);
+      proj_aim_last_splash_history.clear();
+      proj_aim_commit_debug_stats();
+    }
+    return direct_candidate;
+  }
   if (config.aimbot.projectile_mode == Aim::ProjectileMode::DIRECT_THEN_SPLASH && direct_confident) {
     if (config.aimbot.projectile_debug) {
       proj_aim_last_direct_history = std::move(direct_history);

@@ -237,6 +237,9 @@ aimbot_candidate find_best_projectile_target(Player* localplayer,
   user_cmd* cmd,
   const Vec3& view_angles) {
   aimbot_candidate best = aim_targeting::find_best_projectile_candidate(localplayer, weapon, cmd, view_angles);
+  if (best.projectile_direct) {
+    return best;
+  }
   const aimbot_candidate non_player = aim_targeting::find_best_non_player_candidate(localplayer, weapon, view_angles);
   if (aimbot_candidate_better(non_player, best)) {
     best = non_player;

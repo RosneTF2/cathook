@@ -828,10 +828,6 @@ inline bool local_prediction_simulate_player_path(Player* player,
     return false;
   }
 
-  if (entity_list == nullptr || player != entity_list->get_localplayer()) {
-    return false;
-  }
-
   if (horizon_seconds <= 0.0f || max_sim_ticks <= 0) {
     return false;
   }
@@ -846,7 +842,21 @@ inline bool local_prediction_simulate_player_path(Player* player,
     return false;
   }
 
+  const bool is_local = entity_list != nullptr && player == entity_list->get_localplayer();
   Vec3 initial_velocity = snapshot.player.velocity;
+  if (!is_local) {
+    const Vec3 average_velocity = local_prediction_estimate_entity_velocity(player);
+    if (local_prediction_velocity_2d_length(average_velocity) > 8.0f || std::fabs(average_velocity.z) > 8.0f) {
+      initial_velocity = average_velocity;
+    }
+    player->set_base_velocity(Vec3{});
+    if (player->is_on_ground()) {
+      initial_velocity.z = std::min(initial_velocity.z, 0.0f);
+    } else {
+      player->set_ground_entity_handle(0);
+    }
+    player->set_velocity(initial_velocity);
+  }
 
   movement_sim_active = true;
   *path_out = {};
@@ -1525,8 +1535,6 @@ inline LocalPredictionEntityPath local_prediction_predict_entity_path(Entity* en
   const bool can_use_engine_movement_sim =
     use_movement_sim &&
     entity_as_player != nullptr &&
-    entity_list != nullptr &&
-    entity_as_player == entity_list->get_localplayer() &&
     prediction != nullptr &&
     game_movement != nullptr &&
     move_helper != nullptr &&
