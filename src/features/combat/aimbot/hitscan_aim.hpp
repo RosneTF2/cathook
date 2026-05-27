@@ -128,7 +128,103 @@ inline bool hitscan_aim_trace_point(Player* localplayer,
     *result_out = result;
   }
 
-  return result.entity == target || result.clear;
+  return result.entity == target || result.clear || hitscan_aim_world_clear(localplayer->get_shoot_pos(), point);
+}
+
+inline Vec3 hitscan_aim_bounds_point(Player* target, int hitbox) {
+  if (target == nullptr) {
+    return {};
+  }
+
+  const Vec3 origin = target->get_collision_origin();
+  const Vec3 mins = target->get_collideable_mins() + origin;
+  const Vec3 maxs = target->get_collideable_maxs() + origin;
+  const Vec3 center = (mins + maxs) * 0.5f;
+  const float height = std::max(maxs.z - mins.z, 1.0f);
+  float z_ratio = 0.58f;
+
+  switch (hitbox) {
+  case aim_hitbox_head:
+    z_ratio = 0.86f;
+    break;
+  case aim_hitbox_pelvis:
+    z_ratio = 0.42f;
+    break;
+  case aim_hitbox_spine_0:
+    z_ratio = 0.50f;
+    break;
+  case aim_hitbox_spine_1:
+    z_ratio = 0.58f;
+    break;
+  case aim_hitbox_spine_2:
+    z_ratio = 0.64f;
+    break;
+  case aim_hitbox_spine_3:
+    z_ratio = 0.70f;
+    break;
+  case aim_hitbox_left_thigh:
+  case aim_hitbox_left_calf:
+  case aim_hitbox_left_foot:
+  case aim_hitbox_right_thigh:
+  case aim_hitbox_right_calf:
+  case aim_hitbox_right_foot:
+    z_ratio = 0.25f;
+    break;
+  default:
+    break;
+  }
+
+  return {
+    center.x,
+    center.y,
+    mins.z + height * z_ratio
+  };
+}
+
+inline hitscan_point hitscan_aim_make_point(Player* localplayer,
+  Player* target,
+  Weapon* weapon,
+  const Vec3& view_angles,
+  int hitbox,
+  int bone,
+  int priority,
+  Vec3 position);
+
+inline hitscan_point hitscan_aim_fallback_point(Player* localplayer,
+  Weapon* weapon,
+  Player* target,
+  const Vec3& view_angles,
+  const std::array<int, 18>& hitboxes,
+  int hitbox_count) {
+  hitscan_point best{};
+  for (int order_index = 0; order_index < hitbox_count; ++order_index) {
+    const int hitbox_id = hitboxes[order_index];
+    Vec3 position{};
+    int bone = 0;
+    if (!target->get_hitbox_center(hitbox_id, &position, &bone)) {
+      position = hitscan_aim_bounds_point(target, hitbox_id);
+      bone = hitbox_id == aim_hitbox_head ? target->get_head_bone() : aimbot_default_bone(localplayer, target, weapon);
+    }
+
+    hitscan_point point = hitscan_aim_make_point(
+      localplayer,
+      target,
+      weapon,
+      view_angles,
+      hitbox_id,
+      bone,
+      order_index,
+      position);
+    if (!point.valid) {
+      continue;
+    }
+
+    if (!best.valid || point.priority < best.priority || (point.priority == best.priority && point.fov < best.fov)) {
+      best = point;
+    }
+  }
+
+  return best;
 }
 
 inline bool hitscan_aim_body_forced(Player* localplayer, Weapon* weapon, Player* target) {
@@ -287,6 +383,95 @@ inline bool hitscan_aim_accepts_trace_hitbox(const aimbot_candidate& candidate, 
     aimbot_hitbox_matches_mask(trace_hitbox, hitscan_aim_configured_hitbox_mask());
 }
 
+inline bool hitscan_aim_ray_hits_model_hitbox(Player* target,
+  int hitbox_id,
+  const Vec3& start_pos,
+  const Vec3& end_pos) {
+  if (target == nullptr || hitbox_id < 0 || model_info == nullptr) {
+    return false;
+  }
+
+  const model_t* model = target->get_model();
+  studio_hdr* hdr = model != nullptr ? model_info->get_studio_model(model) : nullptr;
+  studio_hitbox_set* hitbox_set = hdr != nullptr ? hdr->hitbox_set(target->get_hitbox_set()) : nullptr;
+  if (hitbox_set == nullptr || hitbox_id >= hitbox_set->num_hitboxes) {
+    return false;
+  }
+
+  studio_box* hitbox = hitbox_set->hitbox(hitbox_id);
+  if (hitbox == nullptr || hitbox->bone < 0 || hitbox->bone >= 128) {
+    return false;
+  }
+
+  matrix_3x4 bone_to_world[128]{};
+  if (!target->setup_bones(bone_to_world, 128, 0x7FF00, target->get_simulation_time())) {
+    return false;
+  }
+
+  const Vec3 local_start = aimbot_inverse_transform_point(start_pos, bone_to_world[hitbox->bone]);
+  const Vec3 local_end = aimbot_inverse_transform_point(end_pos, bone_to_world[hitbox->bone]);
+  constexpr float expansion = 2.5f;
+  const Vec3 mins = hitbox->bbmin - Vec3{expansion, expansion, expansion};
+  const Vec3 maxs = hitbox->bbmax + Vec3{expansion, expansion, expansion};
+  return aimbot_segment_intersects_aabb(local_start, local_end, mins, maxs);
+}
+
+inline bool hitscan_aim_ray_hits_player_bounds(Player* target,
+  const Vec3& start_pos,
+  const Vec3& end_pos) {
+  if (target == nullptr) {
+    return false;
+  }
+
+  const Vec3 origin = target->get_collision_origin();
+  const Vec3 mins = target->get_collideable_mins() + origin - Vec3{2.0f, 2.0f, 2.0f};
+  const Vec3 maxs = target->get_collideable_maxs() + origin + Vec3{2.0f, 2.0f, 2.0f};
+  if (!aimbot_vec3_is_finite(mins) || !aimbot_vec3_is_finite(maxs)) {
+    return false;
+  }
+
+  return aimbot_segment_intersects_aabb(start_pos, end_pos, mins, maxs);
+}
+
+inline bool hitscan_aim_ray_hits_entity_bounds(Entity* target,
+  const Vec3& start_pos,
+  const Vec3& end_pos) {
+  if (target == nullptr) {
+    return false;
+  }
+
+  const Vec3 origin = target->get_collision_origin();
+  const Vec3 mins = target->get_collideable_mins() + origin - Vec3{2.0f, 2.0f, 2.0f};
+  const Vec3 maxs = target->get_collideable_maxs() + origin + Vec3{2.0f, 2.0f, 2.0f};
+  if (!aimbot_vec3_is_finite(mins) || !aimbot_vec3_is_finite(maxs)) {
+    return false;
+  }
+
+  return aimbot_segment_intersects_aabb(start_pos, end_pos, mins, maxs);
+}
+
+inline bool hitscan_aim_trace_fallback(const aimbot_candidate& candidate,
+  const Vec3& start_pos,
+  const Vec3& end_pos) {
+  if (candidate.entity == nullptr || !aimbot_vec3_is_finite(candidate.aim_position)) {
+    return false;
+  }
+
+  if (!hitscan_aim_world_clear(start_pos, candidate.aim_position)) {
+    return false;
+  }
+
+  if (candidate.player != nullptr) {
+    if (candidate.hitbox >= 0 && hitscan_aim_ray_hits_model_hitbox(candidate.player, candidate.hitbox, start_pos, end_pos)) {
+      return true;
+    }
+
+    return hitscan_aim_ray_hits_player_bounds(candidate.player, start_pos, end_pos);
+  }
+
+  return hitscan_aim_ray_hits_entity_bounds(candidate.entity, start_pos, end_pos);
+}
+
 inline bool hitscan_aim_adjust_head_point(Player* localplayer, Player* target, Vec3* point) {
   if (localplayer == nullptr || target == nullptr || point == nullptr) {
     return false;
@@ -364,37 +549,12 @@ inline hitscan_point hitscan_aim_find_point(Player* localplayer,
   studio_hdr* hdr = model != nullptr ? model_info->get_studio_model(model) : nullptr;
   studio_hitbox_set* hitbox_set = hdr != nullptr ? hdr->hitbox_set(target->get_hitbox_set()) : nullptr;
   if (hitbox_set == nullptr) {
-    return best;
+    return hitscan_aim_fallback_point(localplayer, weapon, target, view_angles, hitboxes, hitbox_count);
   }
 
   matrix_3x4 bone_to_world[128]{};
   if (!target->setup_bones(bone_to_world, 128, 0x7FF00, target->get_simulation_time())) {
-    for (int order_index = 0; order_index < hitbox_count; ++order_index) {
-      const int hitbox_id = hitboxes[order_index];
-      Vec3 position{};
-      int bone = 0;
-      if (!target->get_hitbox_center(hitbox_id, &position, &bone)) {
-        continue;
-      }
-
-      hitscan_point point = hitscan_aim_make_point(
-        localplayer,
-        target,
-        weapon,
-        view_angles,
-        hitbox_id,
-        bone,
-        order_index,
-        position);
-      if (!point.valid) {
-        continue;
-      }
-
-      if (!best.valid || point.priority < best.priority || (point.priority == best.priority && point.fov < best.fov)) {
-        best = point;
-      }
-    }
-    return best;
+    return hitscan_aim_fallback_point(localplayer, weapon, target, view_angles, hitboxes, hitbox_count);
   }
 
   const Vec3 shoot_pos = localplayer->get_shoot_pos();
@@ -588,6 +748,15 @@ inline bool hitscan_aim_trace_candidate(Player* localplayer,
   }
 
   if (hitscan_aim_trace_backtrack_candidate(candidate, start_pos, end_pos)) {
+    if (result != nullptr) {
+      result->hit = true;
+      result->entity = candidate.entity;
+      result->hitbox = candidate.hitbox;
+    }
+    return true;
+  }
+
+  if (hitscan_aim_trace_fallback(candidate, start_pos, end_pos)) {
     if (result != nullptr) {
       result->hit = true;
       result->entity = candidate.entity;

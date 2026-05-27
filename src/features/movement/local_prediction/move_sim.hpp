@@ -819,6 +819,8 @@ inline int local_prediction_path_tick_count(float horizon_seconds) {
     local_prediction_configured_path_ticks());
 }
 
+inline Vec3 local_prediction_player_path_seed_velocity(Player* player);
+
 inline bool local_prediction_simulate_player_path(Player* player,
   float horizon_seconds,
   LocalPredictionEntityPath* path_out,
@@ -842,20 +844,10 @@ inline bool local_prediction_simulate_player_path(Player* player,
     return false;
   }
 
-  const bool is_local = entity_list != nullptr && player == entity_list->get_localplayer();
   Vec3 initial_velocity = snapshot.player.velocity;
-  if (!is_local) {
-    const Vec3 average_velocity = local_prediction_estimate_entity_velocity(player);
-    if (local_prediction_velocity_2d_length(average_velocity) > 8.0f || std::fabs(average_velocity.z) > 8.0f) {
-      initial_velocity = average_velocity;
-    }
-    player->set_base_velocity(Vec3{});
-    if (player->is_on_ground()) {
-      initial_velocity.z = std::min(initial_velocity.z, 0.0f);
-    } else {
-      player->set_ground_entity_handle(0);
-    }
-    player->set_velocity(initial_velocity);
+  const bool is_local_player = entity_list != nullptr && player == entity_list->get_localplayer();
+  if (!is_local_player) {
+    initial_velocity = local_prediction_player_path_seed_velocity(player);
   }
 
   movement_sim_active = true;
@@ -875,16 +867,36 @@ inline bool local_prediction_simulate_player_path(Player* player,
   MoveData move{};
   move.m_bFirstRunOfFunctions = false;
   move.m_bGameCodeMovedPlayer = false;
-  move.m_nPlayerHandle = player->get_index();
+  move.m_nPlayerHandle = player->get_ref_handle();
   move.SetAbsOrigin(snapshot.player.origin);
   move.m_vecVelocity = initial_velocity;
+
+  player->set_velocity(initial_velocity);
+  if (player->is_ducking()) {
+    player->set_ducked(true);
+    player->set_flags(player->get_flags() & ~FL_DUCKING);
+    player->set_duck_time(0.0f);
+    player->set_duck_jump_time(0.0f);
+    player->set_ducking_state(false);
+    player->set_in_duck_jump(false);
+  }
+
+  if (!is_local_player) {
+    player->set_base_velocity(Vec3{});
+    if (snapshot.player.flags & FL_ONGROUND) {
+      move.m_vecVelocity.z = std::min(move.m_vecVelocity.z, 0.0f);
+      player->set_velocity(move.m_vecVelocity);
+    } else {
+      player->set_ground_entity_handle(-1);
+    }
+  }
 
   const float observed_speed = local_prediction_velocity_2d_length(initial_velocity);
   const float max_speed = local_prediction_estimated_max_speed(player, initial_velocity);
   move.m_flMaxSpeed = max_speed;
   move.m_flClientMaxSpeed = max_speed;
 
-  float view_yaw = observed_speed > 1.0f ? local_prediction_vector_yaw(initial_velocity) : 0.0f;
+  float view_yaw = observed_speed > 1.0f ? local_prediction_vector_yaw(initial_velocity) : player->get_eye_angles().y;
   const local_prediction_strafe_estimate strafe_estimate = local_prediction_estimate_strafe(player);
   const float yaw_step = strafe_estimate.valid ? strafe_estimate.yaw_step : local_prediction_estimate_average_yaw_step(player);
   path_out->average_yaw = yaw_step;
@@ -895,9 +907,18 @@ inline bool local_prediction_simulate_player_path(Player* player,
   move.m_vecAbsViewAngles = move.m_vecViewAngles;
   move.m_vecAngles = move.m_vecViewAngles;
   move.m_vecOldAngles = move.m_vecViewAngles;
-  move.m_nButtons = snapshot.player.ducked ? IN_DUCK : 0;
-  move.m_nOldButtons = move.m_nButtons;
+  move.m_nButtons = player->get_buttons();
+  move.m_nOldButtons = player->get_last_buttons();
+  if (snapshot.player.ducked || player->get_ducked()) {
+    move.m_nButtons |= IN_DUCK;
+  }
   local_prediction_fill_move_from_velocity(&move, initial_velocity, view_yaw, max_speed);
+
+  Entity* constraint_entity = player->get_constraint_entity();
+  move.m_vecConstraintCenter = constraint_entity != nullptr ? constraint_entity->get_abs_origin() : player->get_constraint_center();
+  move.m_flConstraintRadius = player->get_constraint_radius();
+  move.m_flConstraintWidth = player->get_constraint_width();
+  move.m_flConstraintSpeedFactor = player->get_constraint_speed_factor();
 
   user_cmd dummy_cmd{};
   dummy_cmd.command_number = snapshot.globals.tickcount + 1;
@@ -910,6 +931,9 @@ inline bool local_prediction_simulate_player_path(Player* player,
   bool movement_ok = true;
   for (int tick = 0; tick < tick_count + lead_ticks; ++tick) {
     global_vars->curtime = (snapshot.player.tickbase + tick) * TICK_INTERVAL;
+    if (!is_local_player) {
+      global_vars->curtime = snapshot.globals.curtime + (static_cast<float>(tick) * static_cast<float>(TICK_INTERVAL));
+    }
     global_vars->frametime = prediction->engine_paused ? 0.0f : TICK_INTERVAL;
     global_vars->tickcount = snapshot.globals.tickcount + tick;
     prediction->first_time_predicted = false;
@@ -930,11 +954,20 @@ inline bool local_prediction_simulate_player_path(Player* player,
     move.m_vecOldAngles = move.m_vecViewAngles;
     dummy_cmd.view_angles = move.m_vecViewAngles;
     dummy_cmd.buttons = move.m_nButtons;
+    dummy_cmd.command_number = snapshot.globals.tickcount + tick + 1;
+    dummy_cmd.tick_count = snapshot.globals.tickcount + tick + 1;
+
+    const float old_client_max_speed = move.m_flClientMaxSpeed;
+    if (player->get_ducked() && player->is_on_ground() && player->get_water_level() <= 1) {
+      move.m_flClientMaxSpeed = old_client_max_speed / 3.0f;
+    }
 
     if (!game_movement->process_movement(player, &move)) {
+      move.m_flClientMaxSpeed = old_client_max_speed;
       movement_ok = false;
       break;
     }
+    move.m_flClientMaxSpeed = old_client_max_speed;
 
     player->set_origin(move.GetAbsOrigin());
     player->set_abs_origin(move.GetAbsOrigin());
@@ -1540,19 +1573,8 @@ inline LocalPredictionEntityPath local_prediction_predict_entity_path(Entity* en
     move_helper != nullptr &&
     global_vars != nullptr;
   if (can_use_engine_movement_sim) {
-    if (local_prediction_simulate_player_path(entity_as_player, horizon_seconds, &path, lead_ticks)) {
-      local_prediction_extend_player_path_lightweight(entity_as_player, &path, step_count);
-      return path;
-    }
-  }
-
-  if (entity_as_player != nullptr && engine_trace != nullptr) {
-    return local_prediction_build_player_path_client_sim(
-      entity_as_player,
-      entity,
-      lead_ticks,
-      step_count,
-      2);
+    local_prediction_simulate_player_path(entity_as_player, horizon_seconds, &path, lead_ticks);
+    return path;
   }
 
   Vec3 origin = entity->get_origin();

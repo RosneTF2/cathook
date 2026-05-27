@@ -710,6 +710,45 @@ public:
     *(int*)(this + 0x31C) = handle;
   }
 
+  int get_constraint_entity_handle(void) {
+    static const int offset = tf2_netvars::find_offset("DT_BasePlayer", {"m_hConstraintEntity"});
+    return offset != 0 ? *reinterpret_cast<int*>(reinterpret_cast<uintptr_t>(this) + static_cast<uintptr_t>(offset)) : 0;
+  }
+
+  Entity* get_constraint_entity(void) {
+    return entity_list != nullptr ? entity_list->entity_from_handle(get_constraint_entity_handle()) : nullptr;
+  }
+
+  Vec3 get_constraint_center(void) {
+    static const int offset = tf2_netvars::find_offset("DT_BasePlayer", {"m_vecConstraintCenter"});
+    return offset != 0 ? *reinterpret_cast<Vec3*>(reinterpret_cast<uintptr_t>(this) + static_cast<uintptr_t>(offset)) : Vec3{};
+  }
+
+  float get_constraint_radius(void) {
+    static const int offset = tf2_netvars::find_offset("DT_BasePlayer", {"m_flConstraintRadius"});
+    return offset != 0 ? *reinterpret_cast<float*>(reinterpret_cast<uintptr_t>(this) + static_cast<uintptr_t>(offset)) : 0.0f;
+  }
+
+  float get_constraint_width(void) {
+    static const int offset = tf2_netvars::find_offset("DT_BasePlayer", {"m_flConstraintWidth"});
+    return offset != 0 ? *reinterpret_cast<float*>(reinterpret_cast<uintptr_t>(this) + static_cast<uintptr_t>(offset)) : 0.0f;
+  }
+
+  float get_constraint_speed_factor(void) {
+    static const int offset = tf2_netvars::find_offset("DT_BasePlayer", {"m_flConstraintSpeedFactor"});
+    return offset != 0 ? *reinterpret_cast<float*>(reinterpret_cast<uintptr_t>(this) + static_cast<uintptr_t>(offset)) : 1.0f;
+  }
+
+  int get_buttons(void) {
+    static const int constraint_offset = tf2_netvars::find_offset("DT_BasePlayer", {"m_hConstraintEntity"});
+    return constraint_offset > 12 ? *reinterpret_cast<int*>(reinterpret_cast<uintptr_t>(this) + static_cast<uintptr_t>(constraint_offset - 12)) : 0;
+  }
+
+  int get_last_buttons(void) {
+    static const int constraint_offset = tf2_netvars::find_offset("DT_BasePlayer", {"m_hConstraintEntity"});
+    return constraint_offset > 24 ? *reinterpret_cast<int*>(reinterpret_cast<uintptr_t>(this) + static_cast<uintptr_t>(constraint_offset - 24)) : 0;
+  }
+
   int get_flags(void) {
     return *(int*)(this + 0x460);
   }
@@ -815,11 +854,15 @@ public:
   }
   
   user_cmd* get_current_cmd(void) {
-    return (user_cmd*)*(void**)(this + (1628 - 8));
+    static const int constraint_offset = tf2_netvars::find_offset("DT_BasePlayer", {"m_hConstraintEntity"});
+    return constraint_offset > 8 ? reinterpret_cast<user_cmd*>(*reinterpret_cast<void**>(reinterpret_cast<uintptr_t>(this) + static_cast<uintptr_t>(constraint_offset - 8))) : nullptr;
   }
 
   void set_current_cmd(user_cmd* user_cmd) {
-    *(void**)(this + (1628 - 8)) = user_cmd;
+    static const int constraint_offset = tf2_netvars::find_offset("DT_BasePlayer", {"m_hConstraintEntity"});
+    if (constraint_offset > 8) {
+      *reinterpret_cast<void**>(reinterpret_cast<uintptr_t>(this) + static_cast<uintptr_t>(constraint_offset - 8)) = user_cmd;
+    }
   }
   
   Entity* to_entity(void) {

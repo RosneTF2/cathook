@@ -12,6 +12,7 @@ V  o o  V  file: src/games/tf2/sdk/interfaces/entity_list.hpp
 #ifndef PLAYER_LIST_HPP
 #define PLAYER_LIST_HPP
 
+#include "games/tf2/sdk/base_handle.hpp"
 #include "games/tf2/sdk/interfaces/engine.hpp"
 
 class Entity;
@@ -50,6 +51,10 @@ public:
     }
 
     return entity_from_index(entity_index);
+  }
+
+  Entity* entity_from_handle(const CBaseHandle& handle) {
+    return entity_from_handle(handle.ToInt());
   }
   
   Player* get_localplayer(void) {

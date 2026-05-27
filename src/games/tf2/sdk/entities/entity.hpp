@@ -18,6 +18,7 @@ V  o o  V  file: src/games/tf2/sdk/entities/entity.hpp
 
 #include "core/types.hpp"
 
+#include "games/tf2/sdk/base_handle.hpp"
 #include "games/tf2/sdk/interfaces/entity_list.hpp"
 #include "games/tf2/sdk/interfaces/model_info.hpp"
 #include "games/tf2/sdk/netvars.hpp"
@@ -232,6 +233,16 @@ public:
     int (*get_index_fn)(void*) = (int (*)(void*))vtable[9];
 
     return get_index_fn(networkable);
+  }
+
+  const CBaseHandle& get_ref_ehandle(void) {
+    void** vtable = *(void***)this;
+    const CBaseHandle& (*get_ref_ehandle_fn)(void*) = (const CBaseHandle& (*)(void*))vtable[3];
+    return get_ref_ehandle_fn(this);
+  }
+
+  int get_ref_handle(void) {
+    return get_ref_ehandle().ToInt();
   }
   
   const char* get_model_name(void) {
