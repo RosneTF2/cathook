@@ -161,6 +161,9 @@ void populate_debug(aimbot_run_context& ctx) {
   debug.resolver_mode = static_cast<int>(info.mode);
 }
 
+bool hitscan_fast_head_backtrack_better(const aimbot_candidate& candidate, const aimbot_candidate& best);
+bool hitscan_ready_candidate_better(const aimbot_candidate& candidate, const aimbot_candidate& best);
+
 aimbot_candidate find_best_hitscan_target(Player* localplayer,
   Weapon* weapon,
   user_cmd* cmd,
@@ -179,13 +182,14 @@ aimbot_candidate find_best_hitscan_target(Player* localplayer,
       continue;
     }
 
-    aimbot_candidate candidate = hitscan_aim_find_candidate(localplayer, weapon, player, view_angles);
+    const aimbot_candidate current_candidate = hitscan_aim_find_candidate(localplayer, weapon, player, view_angles);
     const aimbot_candidate backtrack_candidate = backtrack::find_hitscan_candidate(
       localplayer,
       weapon,
       player,
       view_angles,
       has_preference(player));
+    aimbot_candidate candidate = current_candidate;
     if (aimbot_candidate_better(backtrack_candidate, candidate)) {
       candidate = backtrack_candidate;
     }
@@ -205,9 +209,16 @@ aimbot_candidate find_best_hitscan_target(Player* localplayer,
       best = candidate;
     }
 
-    if (aim_spread::hitscan_candidate_ready_for_selection(localplayer, weapon, cmd, candidate) &&
-        aimbot_candidate_better(candidate, best_ready)) {
-      best_ready = candidate;
+    for (const aimbot_candidate& ready_candidate : { current_candidate, backtrack_candidate }) {
+      if (ready_candidate.entity == nullptr ||
+          !aimbot_fov_within_limit(ready_candidate.fov, ready_candidate.preferred ? 1.35f : 1.0f)) {
+        continue;
+      }
+
+      if (aim_spread::hitscan_candidate_ready_for_selection(localplayer, weapon, cmd, ready_candidate) &&
+          hitscan_ready_candidate_better(ready_candidate, best_ready)) {
+        best_ready = ready_candidate;
+      }
     }
   }
 
@@ -218,7 +229,8 @@ aimbot_candidate find_best_hitscan_target(Player* localplayer,
 
   if (best_ready.entity != nullptr &&
       best.player != nullptr &&
-      !aim_spread::hitscan_candidate_ready_for_selection(localplayer, weapon, cmd, best)) {
+      (!aim_spread::hitscan_candidate_ready_for_selection(localplayer, weapon, cmd, best) ||
+        hitscan_fast_head_backtrack_better(best_ready, best))) {
     best = best_ready;
   }
 
@@ -302,6 +314,25 @@ bool hitscan_settled(const aimbot_run_context& ctx) {
     return true;
   }
   return aimbot_calculate_fov(ctx.applied_angles, ctx.target_angles) <= 0.85f;
+}
+
+bool hitscan_fast_head_backtrack_better(const aimbot_candidate& candidate, const aimbot_candidate& best) {
+  if (!candidate.backtrack ||
+      best.entity == nullptr ||
+      best.backtrack ||
+      candidate.player == nullptr ||
+      candidate.player != best.player ||
+      candidate.hitbox != aim_hitbox_head ||
+      best.hitbox != aim_hitbox_head) {
+    return false;
+  }
+
+  const float target_speed = aimbot_candidate_target_speed(candidate);
+  return target_speed >= 360.0f && candidate.fov <= best.fov + 1.5f;
+}
+
+bool hitscan_ready_candidate_better(const aimbot_candidate& candidate, const aimbot_candidate& best) {
+  return hitscan_fast_head_backtrack_better(candidate, best) || aimbot_candidate_better(candidate, best);
 }
 
 void compute_angles(aimbot_run_context& ctx) {

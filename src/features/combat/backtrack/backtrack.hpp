@@ -1,19 +1,7 @@
-/*
-/^-----^\   data: 2026-05-10
-V  o o  V  file: src/features/combat/backtrack/backtrack.hpp
- |  Y  |   author: pupnoodle
-  \ Q /
-  / - \
-  |    \
-  |     \     )
-  || (___\====
-*/
-
 #ifndef BACKTRACK_HPP
 #define BACKTRACK_HPP
 
 #include <array>
-#include <climits>
 
 #include "core/types.hpp"
 #include "games/tf2/sdk/interfaces/model_info.hpp"
@@ -27,8 +15,9 @@ namespace backtrack
 {
 
 constexpr int max_entities = 65;
-constexpr int max_records = 80;
-constexpr int max_points = 10;
+constexpr int max_records = 96;
+constexpr int max_bones = 128;
+constexpr int max_hitboxes = 32;
 
 struct backtrack_bounds {
   bool valid = false;
@@ -36,42 +25,71 @@ struct backtrack_bounds {
   Vec3 maxs{};
 };
 
-struct backtrack_point {
+struct backtrack_hitbox {
   bool valid = false;
-  int bone = 0;
+  int bone = -1;
   int hitbox = -1;
-  int priority = INT_MAX;
-  Vec3 position{};
+  int group = 0;
+  Vec3 center{};
+  Vec3 mins{};
+  Vec3 maxs{};
 };
 
 struct backtrack_record {
   bool valid = false;
+  bool invalid = false;
+  bool teleport = false;
+  bool on_shot = false;
   Player* player = nullptr;
   int ent_index = 0;
   float sim_time = 0.0f;
-  float curtime = 0.0f;
+  float receive_time = 0.0f;
+  float valid_delta = 0.0f;
   Vec3 origin{};
-  backtrack_bounds bounds{};
-  std::array<backtrack_point, max_points> points{};
-  int point_count = 0;
-  std::array<matrix_3x4, 128> bones{};
+  Vec3 mins{};
+  Vec3 maxs{};
+  Vec3 velocity{};
+  int choked_ticks = 0;
+  std::array<matrix_3x4, max_bones> bones{};
   int bone_count = 0;
+  std::array<backtrack_hitbox, max_hitboxes> hitboxes{};
+  int hitbox_count = 0;
 };
 
-struct player_records {
+struct backtrack_history {
   int ent_index = 0;
   int record_count = 0;
   std::array<backtrack_record, max_records> records{};
 };
 
+struct backtrack_timing {
+  bool valid = false;
+  float outgoing_latency = 0.0f;
+  float incoming_latency = 0.0f;
+  float fake_latency = 0.0f;
+  float fake_interp = 0.0f;
+  float correct = 0.0f;
+  float window = 0.0f;
+  float max_unlag = 1.0f;
+  int server_tick = 0;
+};
+
+struct backtrack_record_view {
+  std::array<const backtrack_record*, max_records> records{};
+  int count = 0;
+};
+
 void on_create_move(user_cmd* user_cmd);
 void record_player(Player* player);
+void store();
 void clear();
 
 [[nodiscard]] bool is_enabled();
 [[nodiscard]] float fake_latency_seconds();
 [[nodiscard]] float interpolation_time();
-[[nodiscard]] const player_records* records_for_player(Player* player);
+[[nodiscard]] backtrack_timing current_timing();
+[[nodiscard]] const backtrack_history* records_for_player(Player* player);
+[[nodiscard]] backtrack_record_view valid_records(Player* player);
 [[nodiscard]] bool is_record_valid(const backtrack_record& record, Player* player);
 [[nodiscard]] bool selected_position(Vec3* position);
 [[nodiscard]] aimbot_candidate find_hitscan_candidate(Player* localplayer,
@@ -83,6 +101,6 @@ void clear();
 void install_net_channel_hook();
 void restore_net_channel_hook();
 
-} // namespace backtrack
+}
 
 #endif

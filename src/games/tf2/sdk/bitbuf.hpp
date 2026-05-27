@@ -191,6 +191,23 @@ public:
     return !overflow_;
   }
 
+  auto write_string(const char* value) -> bool {
+    if (value == nullptr) {
+      write_byte(0);
+      return !overflow_;
+    }
+
+    for (const char* cursor = value; *cursor != '\0'; ++cursor) {
+      write_byte(static_cast<unsigned char>(*cursor));
+      if (overflow_) {
+        return false;
+      }
+    }
+
+    write_byte(0);
+    return !overflow_;
+  }
+
 private:
   void set_overflow() {
     overflow_ = true;

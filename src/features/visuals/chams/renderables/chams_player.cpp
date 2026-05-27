@@ -37,8 +37,7 @@ namespace
 
 void draw_backtrack_chams(Player* player, void* me, void* state, ModelRenderInfo* pinfo)
 {
-  if (!config.debug.insider_settings_unlocked ||
-      !config.chams.player.backtrack ||
+  if (!config.chams.player.backtrack ||
       player == nullptr ||
       pinfo == nullptr) {
     return;

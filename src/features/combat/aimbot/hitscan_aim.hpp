@@ -248,6 +248,10 @@ inline bool hitscan_aim_body_forced(Player* localplayer, Weapon* weapon, Player*
   return false;
 }
 
+inline bool hitscan_aim_head_only(uint32_t hitbox_mask) {
+  return (hitbox_mask & aim_hitbox_mask_head) != 0 && (hitbox_mask & ~aim_hitbox_mask_head) == 0;
+}
+
 inline int hitscan_aim_first_hitbox_for_mask(uint32_t mask, const std::array<int, 18>& order) {
   for (const int hitbox : order) {
     if (aimbot_hitbox_matches_mask(hitbox, mask)) {
@@ -303,7 +307,7 @@ inline int hitscan_aim_priority_hitbox(Player* localplayer,
     aim_hitbox_right_foot
   };
 
-  if (hitscan_aim_body_forced(localplayer, weapon, target)) {
+  if (!hitscan_aim_head_only(settings.hitbox_mask) && hitscan_aim_body_forced(localplayer, weapon, target)) {
     uint32_t body_mask = settings.hitbox_mask & ~aim_hitbox_mask_head;
     if (body_mask == 0) {
       body_mask = aim_hitbox_mask_body | aim_hitbox_mask_pelvis;
@@ -671,12 +675,24 @@ inline bool hitscan_aim_trace_backtrack_candidate(const aimbot_candidate& candid
     return aimbot_segment_intersects_aabb(start_pos, end_pos, candidate.backtrack_mins, candidate.backtrack_maxs);
   }
 
+  if (candidate.backtrack_hitbox_valid) {
+    const Vec3 local_start = aimbot_inverse_transform_point(start_pos, candidate.backtrack_bone);
+    const Vec3 local_end = aimbot_inverse_transform_point(end_pos, candidate.backtrack_bone);
+    constexpr float expansion = 1.25f;
+    const Vec3 mins = candidate.backtrack_hitbox_mins - Vec3{expansion, expansion, expansion};
+    const Vec3 maxs = candidate.backtrack_hitbox_maxs + Vec3{expansion, expansion, expansion};
+    if (!aimbot_segment_intersects_aabb(local_start, local_end, mins, maxs)) {
+      return false;
+    }
+    return aimbot_segment_intersects_aabb(start_pos, end_pos, candidate.backtrack_mins, candidate.backtrack_maxs);
+  }
+
   float horizontal_radius = 5.0f;
   float vertical_radius = 6.0f;
   switch (candidate.hitbox) {
   case aim_hitbox_head:
-    horizontal_radius = 3.25f;
-    vertical_radius = 3.25f;
+    horizontal_radius = 5.0f;
+    vertical_radius = 4.75f;
     break;
   case aim_hitbox_pelvis:
   case aim_hitbox_spine_0:
@@ -749,6 +765,10 @@ inline bool hitscan_aim_trace_candidate(Player* localplayer,
     return true;
   }
 
+  if (trace.entity != nullptr && trace.entity != candidate.entity) {
+    return false;
+  }
+
   if (hitscan_aim_trace_backtrack_candidate(candidate, start_pos, end_pos)) {
     if (result != nullptr) {
       result->hit = true;
@@ -756,6 +776,10 @@ inline bool hitscan_aim_trace_candidate(Player* localplayer,
       result->hitbox = candidate.hitbox;
     }
     return true;
+  }
+
+  if (trace.entity == candidate.entity) {
+    return false;
   }
 
   if (hitscan_aim_trace_fallback(candidate, start_pos, end_pos)) {

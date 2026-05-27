@@ -675,8 +675,6 @@ inline void enforce_insider_settings_lock(Config& cfg)
     return;
   }
 
-  cfg.backtrack.enabled = false;
-  cfg.chams.player.backtrack = false;
 }
 
 inline void reset_insider_settings_session(Config& cfg)

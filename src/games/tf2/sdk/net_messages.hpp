@@ -14,12 +14,14 @@ V  o o  V  file: src/games/tf2/sdk/net_messages.hpp
 
 #include <algorithm>
 #include <cstddef>
+#include <cstring>
 
 #include "games/tf2/sdk/bitbuf.hpp"
 #include "games/tf2/sdk/interfaces/net_channel.hpp"
 
 constexpr int netmsg_type_bits = 6;
 constexpr int net_tick = 3;
+constexpr int net_set_convar = 5;
 constexpr int clc_move = 9;
 constexpr int num_new_command_bits = 4;
 constexpr int max_new_commands = 15;
@@ -171,6 +173,55 @@ private:
 };
 
 static_assert(offsetof(net_tick_message, message_handler) == 0x18, "net_tick_message handler offset mismatch");
+
+class net_set_convar_message final : public net_message_base {
+public:
+  net_set_convar_message(const char* name, const char* value) {
+    if (name != nullptr) {
+      std::strncpy(name_, name, sizeof(name_) - 1);
+    }
+    if (value != nullptr) {
+      std::strncpy(value_, value, sizeof(value_) - 1);
+    }
+  }
+
+  auto read_from_buffer(bf_read& buffer) -> bool override {
+    (void)buffer;
+    return false;
+  }
+
+  auto write_to_buffer(bf_write& buffer) -> bool override {
+    buffer.write_u_bit_long(get_type(), netmsg_type_bits);
+    buffer.write_byte(1);
+    buffer.write_string(name_);
+    buffer.write_string(value_);
+    return !buffer.is_overflowed();
+  }
+
+  auto get_type() const -> int override {
+    return net_set_convar;
+  }
+
+  auto get_group() const -> int override {
+    return net_channel_info::stringcmd;
+  }
+
+  auto get_name() const -> const char* override {
+    return "net_SetConVar";
+  }
+
+  auto to_string() const -> const char* override {
+    return "net_SetConVar";
+  }
+
+  void* message_handler = nullptr;
+
+private:
+  char name_[260]{};
+  char value_[260]{};
+};
+
+static_assert(offsetof(net_set_convar_message, message_handler) == 0x18, "net_set_convar_message handler offset mismatch");
 
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop

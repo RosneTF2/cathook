@@ -21,6 +21,7 @@ enum class projectile_trace_contract {
   fire_setup,
   spawn,
   world_block,
+  direct_target,
   radius_damage
 };
 
@@ -32,6 +33,8 @@ inline unsigned int projectile_trace_mask(projectile_trace_contract contract) {
     return MASK_SOLID_BRUSHONLY;
   case projectile_trace_contract::radius_damage:
     return MASK_RADIUS_DAMAGE;
+  case projectile_trace_contract::direct_target:
+    return MASK_SOLID;
   case projectile_trace_contract::world_block:
   default:
     return MASK_SOLID;
@@ -45,7 +48,8 @@ inline bool projectile_trace_ray(const Vec3& start,
   projectile_trace_contract contract,
   Entity* skip_entity,
   int skip_team,
-  trace_t* trace_out) {
+  trace_t* trace_out,
+  Entity* target_entity = nullptr) {
   if (engine_trace == nullptr || trace_out == nullptr) {
     return false;
   }
@@ -81,6 +85,9 @@ inline bool projectile_trace_ray(const Vec3& start,
     break;
   case projectile_trace_contract::radius_damage:
     engine_trace->init_projectile_radius_damage_trace_filter(&filter, skip_entity, skip_team);
+    break;
+  case projectile_trace_contract::direct_target:
+    engine_trace->init_projectile_direct_trace_filter(&filter, skip_entity, target_entity);
     break;
   case projectile_trace_contract::world_block:
   default:

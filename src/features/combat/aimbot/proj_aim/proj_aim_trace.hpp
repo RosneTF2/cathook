@@ -333,14 +333,18 @@ inline bool proj_aim_trace_path_segment_loop(Player* localplayer,
         end,
         sim_profile.hull_trace ? &hull_mins : nullptr,
         sim_profile.hull_trace ? &hull_maxs : nullptr,
-        projectile_trace_contract::world_block,
+        projectile_trace_contract::direct_target,
         localplayer,
         -1,
-        &trace)) {
+        &trace,
+        target)) {
       return false;
     }
     if (trace.start_solid || trace.all_solid) {
       return false;
+    }
+    if (trace.entity == target) {
+      return true;
     }
     if (trace.fraction < 1.0f && (!reaches_target || trace.fraction + 0.001f < target_enter_fraction)) {
       return false;

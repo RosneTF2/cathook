@@ -1008,12 +1008,12 @@ void draw_atlas_tile(
 
 [[nodiscard]] bool get_backtrack_record_screen_bounds(const backtrack::backtrack_record& record, esp_bounds* bounds)
 {
-  if (bounds == nullptr || !record.bounds.valid || render_view == nullptr) {
+  if (bounds == nullptr || !record.valid || render_view == nullptr) {
     return false;
   }
 
-  const auto mins = record.bounds.mins;
-  const auto maxs = record.bounds.maxs;
+  const auto mins = record.origin + record.mins;
+  const auto maxs = record.origin + record.maxs;
   const std::array<Vec3, 8> world_points = {
     Vec3{mins.x, mins.y, mins.z},
     Vec3{maxs.x, mins.y, mins.z},
@@ -1057,12 +1057,12 @@ void draw_atlas_tile(
 
 [[nodiscard]] bool get_backtrack_record_projected_box(const backtrack::backtrack_record& record, projected_box* box)
 {
-  if (box == nullptr || !record.bounds.valid || render_view == nullptr) {
+  if (box == nullptr || !record.valid || render_view == nullptr) {
     return false;
   }
 
-  const auto mins = record.bounds.mins;
-  const auto maxs = record.bounds.maxs;
+  const auto mins = record.origin + record.mins;
+  const auto maxs = record.origin + record.maxs;
   const std::array<Vec3, 8> world_points = {
     Vec3{mins.x, mins.y, mins.z},
     Vec3{maxs.x, mins.y, mins.z},
@@ -1888,7 +1888,7 @@ void draw_backtrack_visualizer_imgui()
 
     for (int record_index = 0; record_index < draw_count; ++record_index) {
       const auto& record = history->records[record_index];
-      if (!backtrack::is_record_valid(record, player) || record.point_count <= 0 || !record.points[0].valid) {
+      if (!backtrack::is_record_valid(record, player) || record.hitbox_count <= 0 || !record.hitboxes[0].valid) {
         previous_valid = false;
         continue;
       }
@@ -1913,7 +1913,7 @@ void draw_backtrack_visualizer_imgui()
       }
       case backtrack_config::visualizer_style::trail: {
         Vec3 screen{};
-        if (overlay_projection::world_to_screen(record.points[0].position, &screen)) {
+        if (overlay_projection::world_to_screen(record.hitboxes[0].center, &screen)) {
           if (previous_valid) {
             draw_list->AddLine(
               ImVec2(previous_screen.x + 1.0f, previous_screen.y + 1.0f),
@@ -1932,7 +1932,7 @@ void draw_backtrack_visualizer_imgui()
       }
       case backtrack_config::visualizer_style::pulse: {
         Vec3 screen{};
-        if (overlay_projection::world_to_screen(record.points[0].position, &screen)) {
+        if (overlay_projection::world_to_screen(record.hitboxes[0].center, &screen)) {
           const float realtime = global_vars != nullptr ? global_vars->realtime : ImGui::GetTime();
           const float pulse = 0.5f + (0.5f * std::sin((realtime * 7.0f) + (age_fraction * 5.0f)));
           const float radius = 4.0f + (pulse * 7.0f);
@@ -1945,7 +1945,7 @@ void draw_backtrack_visualizer_imgui()
       case backtrack_config::visualizer_style::points:
       default: {
         Vec3 screen{};
-        if (overlay_projection::world_to_screen(record.points[0].position, &screen)) {
+        if (overlay_projection::world_to_screen(record.hitboxes[0].center, &screen)) {
           draw_list->AddRectFilled(
             ImVec2(screen.x - 3.0f, screen.y - 3.0f),
             ImVec2(screen.x + 3.0f, screen.y + 3.0f),

@@ -52,8 +52,12 @@ struct aimbot_candidate {
   Vec3 command_angles{};
   Vec3 backtrack_mins{};
   Vec3 backtrack_maxs{};
+  Vec3 backtrack_hitbox_mins{};
+  Vec3 backtrack_hitbox_maxs{};
+  matrix_3x4 backtrack_bone{};
   bool spread_compensated = false;
   bool backtrack = false;
+  bool backtrack_hitbox_valid = false;
   int pellet_index = -1;
   int pellet_count = 0;
   float spread = 0.0f;
