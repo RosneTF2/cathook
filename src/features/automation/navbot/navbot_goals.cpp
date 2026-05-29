@@ -27,6 +27,7 @@ V  o o  V  file: src/features/automation/navbot/navbot_goals.cpp
 #include "games/tf2/sdk/entities/entity.hpp"
 #include "games/tf2/sdk/entities/player.hpp"
 #include "games/tf2/sdk/entities/team_objective_resource.hpp"
+#include "games/tf2/sdk/interfaces/engine_trace.hpp"
 #include "games/tf2/sdk/interfaces/entity_list.hpp"
 #include "games/tf2/sdk/interfaces/global_vars.hpp"
 
@@ -800,6 +801,89 @@ float choose_enemy_orbit_phase(float current_time)
   return phase;
 }
 
+bool vec3_is_finite(const Vec3& value)
+{
+  return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+unsigned int enemy_line_of_fire_trace_mask()
+{
+  unsigned int trace_mask = MASK_SHOT | CONTENTS_GRATE;
+  if (config.aimbot.shoot_through_glass)
+  {
+    trace_mask &= ~CONTENTS_WINDOW;
+  }
+
+  return trace_mask;
+}
+
+bool enemy_line_of_fire_clear(Player* localplayer, Player* enemy, const Vec3& shoot_pos, const Vec3& target_pos)
+{
+  if (localplayer == nullptr || enemy == nullptr || engine_trace == nullptr)
+  {
+    return false;
+  }
+  if (!vec3_is_finite(shoot_pos) || !vec3_is_finite(target_pos))
+  {
+    return false;
+  }
+
+  Vec3 start = shoot_pos;
+  Vec3 end = target_pos;
+  ray_t ray = engine_trace->init_ray(&start, &end);
+  trace_filter filter{};
+  engine_trace->init_hitscan_trace_filter(&filter, localplayer, enemy);
+  trace_t trace{};
+  engine_trace->trace_ray(&ray, enemy_line_of_fire_trace_mask(), &filter, &trace);
+
+  Entity* traced_entity = static_cast<Entity*>(trace.entity);
+  if (traced_entity != nullptr && traced_entity->get_index() == enemy->get_index())
+  {
+    return true;
+  }
+
+  return !trace.all_solid && !trace.start_solid && trace.fraction >= 0.999f;
+}
+
+bool enemy_goal_has_line_of_fire(Player* localplayer, Player* enemy, const Vec3& destination)
+{
+  if (localplayer == nullptr || enemy == nullptr)
+  {
+    return false;
+  }
+
+  const Vec3 shoot_pos = destination + localplayer->get_view_offset();
+  const Vec3 enemy_origin = enemy->get_origin();
+  const Vec3 enemy_view_offset = enemy->get_view_offset();
+  const Vec3 enemy_eye = enemy_origin + enemy_view_offset;
+  const Vec3 enemy_chest = enemy_origin + Vec3{0.0f, 0.0f, std::max(enemy_view_offset.z * 0.62f, 36.0f)};
+  const Vec3 enemy_low = enemy_origin + Vec3{0.0f, 0.0f, 28.0f};
+  const Vec3 target_points[] = {enemy_eye, enemy_chest, enemy_low};
+
+  for (const Vec3& target_point : target_points)
+  {
+    if (enemy_line_of_fire_clear(localplayer, enemy, shoot_pos, target_point))
+    {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+void choose_enemy_range_candidate(goal_candidate& best_visible, goal_candidate& best_blocked, const goal_candidate& candidate, bool has_line_of_fire)
+{
+  if (has_line_of_fire)
+  {
+    choose_best(best_visible, candidate);
+    return;
+  }
+
+  goal_candidate blocked_candidate = candidate;
+  blocked_candidate.score -= 85.0f;
+  choose_best(best_blocked, blocked_candidate);
+}
+
 float enemy_goal_score(const nav_area_data& area, const Vec3& local_origin, const Vec3& enemy_origin, float desired_distance, const enemy_range_profile& profile)
 {
   auto local_distance = std::sqrt(distance_squared_2d(local_origin, area.center));
@@ -848,8 +932,10 @@ float enemy_goal_score(const nav_area_data& area, const Vec3& local_origin, cons
 
 goal_candidate choose_enemy_goal(const navbot_mesh& mesh, Player* localplayer, float current_time)
 {
-  goal_candidate best{};
-  best.score = -1.0f;
+  goal_candidate best_visible{};
+  best_visible.score = -std::numeric_limits<float>::max();
+  goal_candidate best_blocked{};
+  best_blocked.score = -std::numeric_limits<float>::max();
   auto local_origin = localplayer->get_origin();
   auto profile = build_enemy_range_profile(localplayer->get_tf_class());
   auto orbit_phase = choose_enemy_orbit_phase(current_time);
@@ -874,7 +960,9 @@ goal_candidate choose_enemy_goal(const navbot_mesh& mesh, Player* localplayer, f
     if (fallback_area != nullptr)
     {
       auto fallback_score = enemy_goal_score(*fallback_area, local_origin, enemy_origin, desired_distance, profile) - 6.0f;
-      choose_best(best, make_candidate(goal_type::hold_range_on_enemy, fallback_score, fallback_area->center, fallback_area_id));
+      const Vec3 destination = fallback_area->center;
+      const goal_candidate candidate = make_candidate(goal_type::hold_range_on_enemy, fallback_score, destination, fallback_area_id);
+      choose_enemy_range_candidate(best_visible, best_blocked, candidate, enemy_goal_has_line_of_fire(localplayer, player, destination));
     }
 
     for (auto orbit_offset : orbit_offsets)
@@ -901,11 +989,12 @@ goal_candidate choose_enemy_goal(const navbot_mesh& mesh, Player* localplayer, f
       auto destination = mesh.get_nearest_point(area_id, orbit_point);
       auto score = enemy_goal_score(*area, local_origin, enemy_origin, desired_distance, profile);
       score -= distance_squared_2d(destination, orbit_point) * 0.00002f;
-      choose_best(best, make_candidate(goal_type::hold_range_on_enemy, score, destination, area_id));
+      const goal_candidate candidate = make_candidate(goal_type::hold_range_on_enemy, score, destination, area_id);
+      choose_enemy_range_candidate(best_visible, best_blocked, candidate, enemy_goal_has_line_of_fire(localplayer, player, destination));
     }
   }
 
-  return best;
+  return best_visible.destination_area.valid() ? best_visible : best_blocked;
 }
 
 goal_candidate choose_heal_follow_goal(const navbot_mesh& mesh, Player* localplayer)

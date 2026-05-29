@@ -496,8 +496,18 @@ void config_store::import_config(const Config& config)
     set_bool("misc.automation.navbot_dont_path_unless_match_started", config.misc.automation.navbot_dont_path_unless_match_started);
     set_bool("misc.automation.navbot_warmup_only_blu_cp_pl", config.misc.automation.navbot_warmup_only_blu_cp_pl);
     set_bool("misc.automation.navbot_look_at_path", config.misc.automation.navbot_look_at_path);
+    set_int("misc.automation.navbot_look_mode", static_cast<int>(config.misc.automation.navbot_look_mode));
     set_bool("misc.automation.navbot_auto_weapon", config.misc.automation.navbot_auto_weapon);
     set_float("misc.automation.navbot_look_at_path_speed", config.misc.automation.navbot_look_at_path_speed);
+    set_float("misc.automation.navbot_look_at_path_pitch_speed", config.misc.automation.navbot_look_at_path_pitch_speed);
+    set_int("misc.automation.navbot_look_at_path_crumb_offset", config.misc.automation.navbot_look_at_path_crumb_offset);
+    set_float("misc.automation.navbot_look_at_path_ahead_base", config.misc.automation.navbot_look_at_path_ahead_base);
+    set_float("misc.automation.navbot_look_at_path_ahead_velocity_scale", config.misc.automation.navbot_look_at_path_ahead_velocity_scale);
+    set_float("misc.automation.navbot_look_at_path_ahead_min", config.misc.automation.navbot_look_at_path_ahead_min);
+    set_float("misc.automation.navbot_look_at_path_ahead_max", config.misc.automation.navbot_look_at_path_ahead_max);
+    set_float("misc.automation.navbot_look_at_path_pitch_up_scale", config.misc.automation.navbot_look_at_path_pitch_up_scale);
+    set_float("misc.automation.navbot_look_at_path_pitch_down_scale", config.misc.automation.navbot_look_at_path_pitch_down_scale);
+    set_float("misc.automation.navbot_look_at_path_pitch_limit", config.misc.automation.navbot_look_at_path_pitch_limit);
     set_float("misc.automation.navbot_crumb_blacklist_seconds", config.misc.automation.navbot_crumb_blacklist_seconds);
     set_bool("misc.automation.navbot_debug_text", config.misc.automation.navbot_debug_text);
     set_int("misc.automation.navbot_excluded_jobs_mask", static_cast<int>(config.misc.automation.navbot_excluded_jobs_mask));
@@ -1143,8 +1153,51 @@ void config_store::export_config(Config& config) const
         "misc.automation.navbot_warmup_only_blu_cp_pl",
         config.misc.automation.navbot_warmup_only_blu_cp_pl);
     config.misc.automation.navbot_look_at_path = get_bool("misc.automation.navbot_look_at_path", config.misc.automation.navbot_look_at_path);
+    config.misc.automation.navbot_look_mode = static_cast<Misc::Automation::navbot_look_at_path_mode>(std::clamp(
+        get_int("misc.automation.navbot_look_mode", static_cast<int>(config.misc.automation.navbot_look_mode)),
+        0,
+        1));
     config.misc.automation.navbot_auto_weapon = get_bool("misc.automation.navbot_auto_weapon", config.misc.automation.navbot_auto_weapon);
-    config.misc.automation.navbot_look_at_path_speed = get_float("misc.automation.navbot_look_at_path_speed", config.misc.automation.navbot_look_at_path_speed);
+    config.misc.automation.navbot_look_at_path_speed = std::clamp(
+        get_float("misc.automation.navbot_look_at_path_speed", config.misc.automation.navbot_look_at_path_speed),
+        45.0f,
+        1080.0f);
+    config.misc.automation.navbot_look_at_path_pitch_speed = std::clamp(
+        get_float("misc.automation.navbot_look_at_path_pitch_speed", config.misc.automation.navbot_look_at_path_pitch_speed),
+        15.0f,
+        720.0f);
+    config.misc.automation.navbot_look_at_path_crumb_offset = std::clamp(
+        get_int("misc.automation.navbot_look_at_path_crumb_offset", config.misc.automation.navbot_look_at_path_crumb_offset),
+        0,
+        8);
+    config.misc.automation.navbot_look_at_path_ahead_base = std::clamp(
+        get_float("misc.automation.navbot_look_at_path_ahead_base", config.misc.automation.navbot_look_at_path_ahead_base),
+        0.0f,
+        900.0f);
+    config.misc.automation.navbot_look_at_path_ahead_velocity_scale = std::clamp(
+        get_float("misc.automation.navbot_look_at_path_ahead_velocity_scale", config.misc.automation.navbot_look_at_path_ahead_velocity_scale),
+        0.0f,
+        1.5f);
+    config.misc.automation.navbot_look_at_path_ahead_min = std::clamp(
+        get_float("misc.automation.navbot_look_at_path_ahead_min", config.misc.automation.navbot_look_at_path_ahead_min),
+        0.0f,
+        900.0f);
+    config.misc.automation.navbot_look_at_path_ahead_max = std::clamp(
+        get_float("misc.automation.navbot_look_at_path_ahead_max", config.misc.automation.navbot_look_at_path_ahead_max),
+        config.misc.automation.navbot_look_at_path_ahead_min,
+        1200.0f);
+    config.misc.automation.navbot_look_at_path_pitch_up_scale = std::clamp(
+        get_float("misc.automation.navbot_look_at_path_pitch_up_scale", config.misc.automation.navbot_look_at_path_pitch_up_scale),
+        0.0f,
+        1.0f);
+    config.misc.automation.navbot_look_at_path_pitch_down_scale = std::clamp(
+        get_float("misc.automation.navbot_look_at_path_pitch_down_scale", config.misc.automation.navbot_look_at_path_pitch_down_scale),
+        0.0f,
+        1.0f);
+    config.misc.automation.navbot_look_at_path_pitch_limit = std::clamp(
+        get_float("misc.automation.navbot_look_at_path_pitch_limit", config.misc.automation.navbot_look_at_path_pitch_limit),
+        0.0f,
+        89.0f);
     config.misc.automation.navbot_crumb_blacklist_seconds = std::clamp(
         get_float("misc.automation.navbot_crumb_blacklist_seconds", config.misc.automation.navbot_crumb_blacklist_seconds),
         50.0f,

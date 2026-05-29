@@ -842,14 +842,29 @@ float normalize_angle_180(float angle)
   return angle;
 }
 
-Vec3 compute_path_look_target(const std::vector<crumb>& crumbs, size_t current_index, const Vec3& eye_origin, float velocity_2d)
+size_t path_look_start_index(const std::vector<crumb>& crumbs, size_t current_index)
+{
+  if (crumbs.empty())
+  {
+    return 0;
+  }
+
+  const int crumb_offset = std::clamp(config.misc.automation.navbot_look_at_path_crumb_offset, 0, 8);
+  return std::min(current_index + static_cast<size_t>(crumb_offset), crumbs.size() - 1);
+}
+
+Vec3 compute_smooth_path_look_target(const std::vector<crumb>& crumbs, size_t current_index, const Vec3& eye_origin, float velocity_2d)
 {
   if (crumbs.empty() || current_index >= crumbs.size())
   {
     return eye_origin;
   }
 
-  const float look_ahead = std::clamp(velocity_2d * 0.45f + 220.0f, 220.0f, 700.0f);
+  const float look_ahead_min = std::clamp(config.misc.automation.navbot_look_at_path_ahead_min, 0.0f, 900.0f);
+  const float look_ahead_max = std::clamp(config.misc.automation.navbot_look_at_path_ahead_max, look_ahead_min, 1200.0f);
+  const float look_ahead_base = std::clamp(config.misc.automation.navbot_look_at_path_ahead_base, 0.0f, 900.0f);
+  const float look_ahead_velocity_scale = std::clamp(config.misc.automation.navbot_look_at_path_ahead_velocity_scale, 0.0f, 1.5f);
+  const float look_ahead = std::clamp(velocity_2d * look_ahead_velocity_scale + look_ahead_base, look_ahead_min, look_ahead_max);
   float remaining = look_ahead;
 
   Vec3 last_point = eye_origin;
@@ -857,13 +872,13 @@ Vec3 compute_path_look_target(const std::vector<crumb>& crumbs, size_t current_i
   for (size_t i = current_index; i < crumbs.size(); ++i)
   {
     const Vec3& point = crumbs[i].world;
-    auto dx = point.x - last_point.x;
-    auto dy = point.y - last_point.y;
-    auto seg_dist = std::sqrt(dx * dx + dy * dy);
+    float dx = point.x - last_point.x;
+    float dy = point.y - last_point.y;
+    float seg_dist = std::sqrt(dx * dx + dy * dy);
 
     if (seg_dist >= remaining)
     {
-      auto t = remaining / std::max(seg_dist, 0.001f);
+      float t = remaining / std::max(seg_dist, 0.001f);
       return Vec3{
         last_point.x + dx * t,
         last_point.y + dy * t,
@@ -878,6 +893,27 @@ Vec3 compute_path_look_target(const std::vector<crumb>& crumbs, size_t current_i
   return result;
 }
 
+Vec3 compute_og_path_look_target(const std::vector<crumb>& crumbs, size_t current_index, const Vec3& eye_origin)
+{
+  if (crumbs.empty() || current_index >= crumbs.size())
+  {
+    return eye_origin;
+  }
+
+  return crumbs[current_index].world;
+}
+
+Vec3 compute_path_look_target(const std::vector<crumb>& crumbs, size_t current_index, const Vec3& eye_origin, float velocity_2d)
+{
+  const size_t start_index = path_look_start_index(crumbs, current_index);
+  if (config.misc.automation.navbot_look_mode == Misc::Automation::navbot_look_at_path_mode::og)
+  {
+    return compute_og_path_look_target(crumbs, start_index, eye_origin);
+  }
+
+  return compute_smooth_path_look_target(crumbs, start_index, eye_origin, velocity_2d);
+}
+
 void apply_look_at_path(Player* localplayer, user_cmd* user_cmd, const std::vector<crumb>& crumbs, size_t current_index)
 {
   if (localplayer == nullptr || user_cmd == nullptr || global_vars == nullptr || crumbs.empty() || current_index >= crumbs.size())
@@ -885,44 +921,45 @@ void apply_look_at_path(Player* localplayer, user_cmd* user_cmd, const std::vect
     return;
   }
 
-  auto velocity = localplayer->get_velocity();
-  auto velocity_2d = std::sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
+  Vec3 velocity = localplayer->get_velocity();
+  float velocity_2d = std::sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
 
-  auto eye_origin = localplayer->get_origin() + localplayer->get_view_offset();
-  auto target = compute_path_look_target(crumbs, current_index, eye_origin, velocity_2d);
+  Vec3 eye_origin = localplayer->get_origin() + localplayer->get_view_offset();
+  Vec3 target = compute_path_look_target(crumbs, current_index, eye_origin, velocity_2d);
 
-  auto delta = Vec3{target.x - eye_origin.x, target.y - eye_origin.y, target.z - eye_origin.z};
-  auto planar_distance = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+  Vec3 delta = Vec3{target.x - eye_origin.x, target.y - eye_origin.y, target.z - eye_origin.z};
+  float planar_distance = std::sqrt(delta.x * delta.x + delta.y * delta.y);
   if (planar_distance <= 0.001f)
   {
     return;
   }
 
-  auto height_delta = std::clamp(delta.z, -72.0f, 96.0f);
-  auto pitch_factor = (height_delta >= 0.0f) ? 0.55f : 0.35f;
-  auto focus_z = eye_origin.z + height_delta * pitch_factor;
-  auto pitch_delta = focus_z - eye_origin.z;
+  float height_delta = std::clamp(delta.z, -72.0f, 96.0f);
+  float pitch_factor = height_delta >= 0.0f
+    ? std::clamp(config.misc.automation.navbot_look_at_path_pitch_up_scale, 0.0f, 1.0f)
+    : std::clamp(config.misc.automation.navbot_look_at_path_pitch_down_scale, 0.0f, 1.0f);
+  float focus_z = eye_origin.z + height_delta * pitch_factor;
+  float pitch_delta = focus_z - eye_origin.z;
+  float pitch_limit = std::clamp(config.misc.automation.navbot_look_at_path_pitch_limit, 0.0f, 89.0f);
 
-  auto desired_pitch = std::clamp(-std::atan2(pitch_delta, planar_distance) * radpi, -25.0f, 25.0f);
-  auto desired_yaw = std::atan2(delta.y, delta.x) * radpi;
+  float desired_pitch = std::clamp(-std::atan2(pitch_delta, planar_distance) * radpi, -pitch_limit, pitch_limit);
+  float desired_yaw = std::atan2(delta.y, delta.x) * radpi;
 
-  auto base_speed = std::max(config.misc.automation.navbot_look_at_path_speed, 1.0f);
-  // Asymmetric step: pitch tolerates a smaller per-tick change than yaw to avoid the
-  // bobbing/jerking that comes from chasing z-deltas on stairs and ramps.
-  auto pitch_step = std::clamp(base_speed * 0.45f, 30.0f, 220.0f) * global_vars->interval_per_tick;
-  auto yaw_step = std::clamp(base_speed * 1.0f, 60.0f, 540.0f) * global_vars->interval_per_tick;
+  float pitch_speed = std::clamp(config.misc.automation.navbot_look_at_path_pitch_speed, 15.0f, 720.0f);
+  float yaw_speed = std::clamp(config.misc.automation.navbot_look_at_path_speed, 45.0f, 1080.0f);
+  float pitch_step = pitch_speed * global_vars->interval_per_tick;
+  float yaw_step = yaw_speed * global_vars->interval_per_tick;
 
-  auto current_pitch = user_cmd->view_angles.x;
-  auto current_yaw = user_cmd->view_angles.y;
-  auto d_pitch = normalize_angle_180(desired_pitch - current_pitch);
-  auto d_yaw = normalize_angle_180(desired_yaw - current_yaw);
+  float current_pitch = user_cmd->view_angles.x;
+  float current_yaw = user_cmd->view_angles.y;
+  float d_pitch = normalize_angle_180(desired_pitch - current_pitch);
+  float d_yaw = normalize_angle_180(desired_yaw - current_yaw);
 
-  // Velocity-eased step: bigger sweeps when there's a lot to cover, but never overshoot.
-  auto pitch_scale = std::min(1.0f, std::fabs(d_pitch) / 30.0f + 0.2f);
-  auto yaw_scale = std::min(1.0f, std::fabs(d_yaw) / 45.0f + 0.25f);
+  float pitch_scale = std::min(1.0f, std::fabs(d_pitch) / 30.0f + 0.2f);
+  float yaw_scale = std::min(1.0f, std::fabs(d_yaw) / 45.0f + 0.25f);
 
-  auto pitch_move = std::clamp(d_pitch, -pitch_step * pitch_scale, pitch_step * pitch_scale);
-  auto yaw_move = std::clamp(d_yaw, -yaw_step * yaw_scale, yaw_step * yaw_scale);
+  float pitch_move = std::clamp(d_pitch, -pitch_step * pitch_scale, pitch_step * pitch_scale);
+  float yaw_move = std::clamp(d_yaw, -yaw_step * yaw_scale, yaw_step * yaw_scale);
 
   user_cmd->view_angles.x = std::clamp(normalize_angle_180(current_pitch + pitch_move), -89.0f, 89.0f);
   user_cmd->view_angles.y = normalize_angle_180(current_yaw + yaw_move);
@@ -930,14 +967,14 @@ void apply_look_at_path(Player* localplayer, user_cmd* user_cmd, const std::vect
 
   if (prediction != nullptr)
   {
-    auto predicted_angles = user_cmd->view_angles;
+    Vec3 predicted_angles = user_cmd->view_angles;
     prediction->set_local_view_angles(predicted_angles);
     prediction->set_view_angles(predicted_angles);
   }
 
   if (engine != nullptr)
   {
-    auto engine_angles = user_cmd->view_angles;
+    Vec3 engine_angles = user_cmd->view_angles;
     engine->set_view_angles(engine_angles);
   }
 }

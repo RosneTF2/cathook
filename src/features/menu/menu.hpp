@@ -1761,6 +1761,10 @@ static void draw_movement_content() {
 }
 
 static void draw_navbot_content() {
+  const char* navbot_look_mode_items[] = {
+    "Smooth",
+    "OG"
+  };
   const char* navbot_job_items[] = {
     "Health",
     "Ammo",
@@ -1797,15 +1801,25 @@ static void draw_navbot_content() {
   };
 
   cat_menu::begin_flow_layout("navbot_layout", 2);
-  cat_menu::flow_panel("NavBot", 0, 324.0f, [&]() {
+  cat_menu::flow_panel("NavBot", 0, 520.0f, [&]() {
     cat_menu::checkbox("Navbot", &config.misc.automation.navbot_enabled);
     cat_menu::checkbox("Draw path", &config.misc.automation.navbot_draw_path);
     cat_menu::checkbox("Don't path during warmup", &config.misc.automation.navbot_dont_path_during_warmup);
     cat_menu::checkbox("Don't path unless match started", &config.misc.automation.navbot_dont_path_unless_match_started);
     cat_menu::checkbox("Warmup only on BLU cp_/pl_", &config.misc.automation.navbot_warmup_only_blu_cp_pl);
     cat_menu::checkbox("Look at path", &config.misc.automation.navbot_look_at_path);
+    cat_menu::combo("Look mode", (int*)&config.misc.automation.navbot_look_mode, navbot_look_mode_items, IM_ARRAYSIZE(navbot_look_mode_items));
     cat_menu::checkbox("Auto weapon", &config.misc.automation.navbot_auto_weapon);
-    cat_menu::slider_float("Look speed", &config.misc.automation.navbot_look_at_path_speed, 45.0f, 1080.0f, "%.0f deg/s");
+    cat_menu::slider_float("Yaw speed", &config.misc.automation.navbot_look_at_path_speed, 45.0f, 1080.0f, "%.0f deg/s");
+    cat_menu::slider_float("Pitch speed", &config.misc.automation.navbot_look_at_path_pitch_speed, 15.0f, 720.0f, "%.0f deg/s");
+    cat_menu::slider_int("Crumb offset", &config.misc.automation.navbot_look_at_path_crumb_offset, 0, 8);
+    cat_menu::slider_float("Look ahead base", &config.misc.automation.navbot_look_at_path_ahead_base, 0.0f, 900.0f, "%.0f HU");
+    cat_menu::slider_float("Look ahead velocity", &config.misc.automation.navbot_look_at_path_ahead_velocity_scale, 0.0f, 1.5f, "%.2f");
+    cat_menu::slider_float("Look ahead min", &config.misc.automation.navbot_look_at_path_ahead_min, 0.0f, 900.0f, "%.0f HU");
+    cat_menu::slider_float("Look ahead max", &config.misc.automation.navbot_look_at_path_ahead_max, 0.0f, 1200.0f, "%.0f HU");
+    cat_menu::slider_float("Pitch up scale", &config.misc.automation.navbot_look_at_path_pitch_up_scale, 0.0f, 1.0f, "%.2f");
+    cat_menu::slider_float("Pitch down scale", &config.misc.automation.navbot_look_at_path_pitch_down_scale, 0.0f, 1.0f, "%.2f");
+    cat_menu::slider_float("Pitch limit", &config.misc.automation.navbot_look_at_path_pitch_limit, 0.0f, 89.0f, "%.0f deg");
     cat_menu::slider_float("Crumb blacklist", &config.misc.automation.navbot_crumb_blacklist_seconds, 50.0f, 150.0f, "%.0f s");
     cat_menu::multi_select_combo("Exclude jobs", &config.misc.automation.navbot_excluded_jobs_mask, navbot_job_items, navbot_job_bits, IM_ARRAYSIZE(navbot_job_items));
     cat_menu::checkbox("Debug text", &config.misc.automation.navbot_debug_text);

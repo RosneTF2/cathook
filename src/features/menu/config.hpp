@@ -547,6 +547,11 @@ struct Misc {
       battle_cry
     };
 
+    enum class navbot_look_at_path_mode {
+      smooth = 0,
+      og = 1
+    };
+
     bool auto_class_select = false;
     enum tf_class class_selected = tf_class::SNIPER;
     bool anti_afk = false;
@@ -625,8 +630,18 @@ struct Misc {
     bool navbot_dont_path_unless_match_started = false;
     bool navbot_warmup_only_blu_cp_pl = false;
     bool navbot_look_at_path = false;
+    navbot_look_at_path_mode navbot_look_mode = navbot_look_at_path_mode::smooth;
     bool navbot_auto_weapon = true;
     float navbot_look_at_path_speed = 360.0f;
+    float navbot_look_at_path_pitch_speed = 162.0f;
+    int navbot_look_at_path_crumb_offset = 0;
+    float navbot_look_at_path_ahead_base = 220.0f;
+    float navbot_look_at_path_ahead_velocity_scale = 0.45f;
+    float navbot_look_at_path_ahead_min = 220.0f;
+    float navbot_look_at_path_ahead_max = 700.0f;
+    float navbot_look_at_path_pitch_up_scale = 0.55f;
+    float navbot_look_at_path_pitch_down_scale = 0.35f;
+    float navbot_look_at_path_pitch_limit = 25.0f;
     float navbot_crumb_blacklist_seconds = 50.0f;
     bool navbot_debug_text = true;
     uint32_t navbot_excluded_jobs_mask = 0;

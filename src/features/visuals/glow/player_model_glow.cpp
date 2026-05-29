@@ -262,7 +262,6 @@ void release_material(Material*& material)
   }
 
   material->decrement_reference_count();
-  material->delete_if_unreferenced();
   material = nullptr;
 }
 
