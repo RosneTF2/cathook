@@ -358,6 +358,38 @@ inline float proj_aim_direct_prediction_horizon(Player* localplayer,
     profile.params.max_time);
 }
 
+inline LocalPredictionEntityPath proj_aim_predict_target_path(Player*,
+  Weapon* weapon,
+  Player* player,
+  const proj_aim_weapon_profile& profile,
+  float horizon_seconds) {
+  if (player == nullptr || horizon_seconds <= 0.0f) {
+    return {};
+  }
+
+  const bool use_lightweight_path =
+    config.aimbot.projectile_mode == Aim::ProjectileMode::DIRECT_ONLY &&
+    projectile_sim_is_rocket_weapon(weapon) &&
+    !profile.arcing;
+  if (!use_lightweight_path) {
+    return local_prediction_predict_entity_path(player, horizon_seconds, true, true);
+  }
+
+  const int lead_ticks = local_prediction_network_lead_ticks(player);
+  const int step_count = local_prediction_path_tick_count(horizon_seconds);
+  LocalPredictionEntityPath path = local_prediction_build_player_path_client_sim(
+    player,
+    player,
+    lead_ticks,
+    step_count,
+    3);
+  if (path.valid) {
+    return path;
+  }
+
+  return local_prediction_predict_entity_path(player, horizon_seconds, false, true);
+}
+
 inline aimbot_candidate proj_aim_find_candidate(Player* localplayer, Weapon* weapon, Player* player, user_cmd* user_cmd, const Vec3& original_view_angles) {
   aimbot_candidate candidate{};
   if (localplayer == nullptr || weapon == nullptr || player == nullptr || user_cmd == nullptr) return candidate;
@@ -378,7 +410,7 @@ inline aimbot_candidate proj_aim_find_candidate(Player* localplayer, Weapon* wea
   const float target_path_horizon = direct_only
     ? proj_aim_direct_prediction_horizon(localplayer, weapon, player, profile)
     : profile.params.max_time;
-  LocalPredictionEntityPath target_path = local_prediction_predict_entity_path(player, target_path_horizon, true, true);
+  LocalPredictionEntityPath target_path = proj_aim_predict_target_path(localplayer, weapon, player, profile, target_path_horizon);
   if (!target_path.valid || target_path.positions.empty()) {
     return candidate;
   }

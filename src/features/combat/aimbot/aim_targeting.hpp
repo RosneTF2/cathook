@@ -164,6 +164,14 @@ inline bool projectile_target_hint_better(const projectile_target_hint& left, co
   }
 }
 
+inline float projectile_candidate_fov_limit(const aimbot_candidate& candidate) {
+  if (!candidate.projectile_direct && !candidate.projectile_splash) {
+    return aimbot_fov_limit(candidate.preferred ? 1.35f : 1.0f);
+  }
+
+  return aimbot_fov_limit(candidate.preferred ? 1.62f : 1.2f, 3.0f);
+}
+
 inline aimbot_candidate find_best_projectile_candidate(Player* localplayer,
   Weapon* weapon,
   user_cmd* user_cmd,
@@ -272,7 +280,7 @@ inline aimbot_candidate find_best_projectile_candidate(Player* localplayer,
       continue;
     }
 
-    const float fov_limit = aimbot_fov_limit(candidate.preferred ? 1.35f : 1.0f);
+    const float fov_limit = projectile_candidate_fov_limit(candidate);
     if (!candidate.visible || candidate.fov > fov_limit) {
       const aimbot_reject_reason reject_reason = !candidate.visible
         ? aimbot_reject_reason::not_visible
