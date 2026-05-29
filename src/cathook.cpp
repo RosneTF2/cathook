@@ -340,6 +340,9 @@ std::atomic_bool process_exiting = false;
 std::atomic_bool attach_worker_started = false;
 std::atomic_bool attach_worker_complete = false;
 std::atomic_bool attach_worker_stop = false;
+std::atomic_bool detach_worker_started = false;
+std::atomic_bool detach_worker_complete = false;
+std::atomic_bool detach_worker_stop = false;
 
 constexpr auto attach_wait_step = std::chrono::milliseconds(100);
 constexpr long attach_ready_delay_default_seconds = 0;
@@ -425,10 +428,17 @@ bool wait_for_module(const char* module_name)
 }
 
 void stop_attach_worker();
+void stop_detach_worker();
 
 std::thread& attach_worker_thread()
 {
   static auto* thread = new std::thread{};
+  return *thread;
+}
+
+std::thread& detach_worker_thread()
+{
+  static std::thread* thread = new std::thread{};
   return *thread;
 }
 
@@ -533,6 +543,82 @@ void stop_attach_worker()
 
   attach_worker_started.store(false, std::memory_order_release);
   attach_worker_complete.store(true, std::memory_order_release);
+}
+
+void detach_worker_main()
+{
+  while (!detach_worker_stop.load(std::memory_order_acquire)
+      && !process_exiting.load(std::memory_order_acquire)) {
+    if (!detach_requested.load(std::memory_order_acquire)) {
+      break;
+    }
+
+    if (detach_started.load(std::memory_order_acquire)) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      continue;
+    }
+
+    const std::uint64_t request_time_ms = detach_request_time_ms.load(std::memory_order_acquire);
+    const std::int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now().time_since_epoch()).count();
+
+    if (request_time_ms == 0 ||
+        (now_ms - static_cast<std::int64_t>(request_time_ms)) >= detach_grace_period.count()) {
+      break;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  if (!detach_worker_stop.load(std::memory_order_acquire)
+      && !process_exiting.load(std::memory_order_acquire)) {
+    service_detach_request();
+  }
+
+  detach_worker_complete.store(true, std::memory_order_release);
+  detach_worker_started.store(false, std::memory_order_release);
+}
+
+void start_detach_worker()
+{
+  if (process_exiting.load(std::memory_order_acquire)) {
+    return;
+  }
+
+  if (detach_worker_started.exchange(true, std::memory_order_acq_rel)) {
+    return;
+  }
+
+  detach_worker_stop.store(false, std::memory_order_release);
+  detach_worker_complete.store(false, std::memory_order_release);
+
+  std::thread& thread = detach_worker_thread();
+  if (thread.joinable()) {
+    if (std::this_thread::get_id() == thread.get_id()) {
+      thread.detach();
+    } else {
+      thread.join();
+    }
+  }
+
+  thread = std::thread{ detach_worker_main };
+}
+
+void stop_detach_worker()
+{
+  detach_worker_stop.store(true, std::memory_order_release);
+
+  std::thread& thread = detach_worker_thread();
+  if (thread.joinable()) {
+    if (std::this_thread::get_id() == thread.get_id()) {
+      thread.detach();
+    } else {
+      thread.join();
+    }
+  }
+
+  detach_worker_started.store(false, std::memory_order_release);
+  detach_worker_complete.store(true, std::memory_order_release);
 }
 
 void shutdown_imgui_runtime()
@@ -709,6 +795,7 @@ bool unload_module_runtime() {
   detach_started.store(false, std::memory_order_release);
   runtime_initialized.store(false, std::memory_order_release);
   unload_started.store(false, std::memory_order_release);
+  stop_detach_worker();
 
   cathook::core::exception_handler::uninstall();
   cathook::core::shutdown_config_store();
@@ -1566,6 +1653,7 @@ extern "C" bool cathook_is_detached()
 __attribute__((destructor))
 void __exit() {
   cathook::core::process_exiting.store(true, std::memory_order_release);
+  cathook::core::stop_detach_worker();
   cathook::core::stop_attach_worker();
   cathook::core::exception_handler::uninstall();
 }

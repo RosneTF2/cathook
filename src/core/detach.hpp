@@ -31,6 +31,7 @@ constexpr auto detach_grace_period = std::chrono::milliseconds(250);
 
 bool unload_module_runtime();
 bool is_runtime_detached();
+void start_detach_worker();
 
 inline void request_detach()
 {
@@ -39,9 +40,8 @@ inline void request_detach()
 
   detach_request_time_ms.store(static_cast<std::uint64_t>(now_ms), std::memory_order_release);
 
-  if (!detach_requested.exchange(true, std::memory_order_acq_rel)) {
-    print("Detach queued\n");
-  }
+  detach_requested.store(true, std::memory_order_release);
+  start_detach_worker();
 }
 
 inline bool is_detach_pending()
@@ -73,7 +73,10 @@ inline void service_detach_request()
     print("Detach cleanup failed\n");
     detach_requested.store(false, std::memory_order_release);
     detach_started.store(false, std::memory_order_release);
+    return;
   }
+
+  detach_started.store(false, std::memory_order_release);
 }
 
 }

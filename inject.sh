@@ -98,6 +98,18 @@ is_enabled() {
     return 0
 }
 
+run_gdb_batch() {
+    local timeout_seconds="$1"
+    shift
+
+    if command -v timeout >/dev/null 2>&1; then
+        timeout --kill-after=2s "${timeout_seconds}s" sudo gdb -n --batch "$@"
+        return $?
+    fi
+
+    sudo gdb -n --batch "$@"
+}
+
 is_dev_mode() {
     is_enabled "${CATHOOK_DEV_MODE:-${CAT_DEV_MODE:-0}}"
 }
@@ -889,13 +901,13 @@ unload() {
     stop_log_tail
     cleanup_temp_runtime
 
-    sudo gdb -n --batch -ex "attach $PROCID" \
+    run_gdb_batch 10 -ex "attach $PROCID" \
          -ex "call cathook_detach()" \
          -ex "detach" >/dev/null 2>&1 || true
 
     local detached=0
     for _ in $(seq 1 40); do
-        if sudo gdb -n --batch -ex "attach $PROCID" \
+        if run_gdb_batch 5 -ex "attach $PROCID" \
              -ex "call cathook_is_detached()" \
              -ex "detach" 2>/dev/null | grep -Eq '\$1 = (true|1)'; then
             detached=1
@@ -912,7 +924,7 @@ unload() {
 
     sleep 0.25
 
-    RC=$(sudo gdb -n --batch -ex "attach $PROCID" \
+    RC=$(run_gdb_batch 10 -ex "attach $PROCID" \
              -ex "call ((int (*) (void *)) dlclose)((void *) $LIB_HANDLE)" \
              -ex "call ((char * (*) (void)) dlerror)()" \
              -ex "detach" 2> /dev/null | grep -oP '\$2 = 0x\K[0-9a-f]+')
