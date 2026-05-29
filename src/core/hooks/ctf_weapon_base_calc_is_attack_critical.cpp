@@ -1,0 +1,90 @@
+#include "games/tf2/sdk/entities/weapon.hpp"
+#include "games/tf2/sdk/interfaces/prediction.hpp"
+
+using ctf_weapon_base_calc_is_attack_critical_fn = void (*)(Weapon*);
+
+ctf_weapon_base_calc_is_attack_critical_fn ctf_weapon_base_calc_is_attack_critical_original = nullptr;
+
+namespace
+{
+
+constexpr int tf_weapon_primary_mode = 0;
+
+struct weapon_mode_guard
+{
+  Weapon* weapon = nullptr;
+  int previous_mode = tf_weapon_primary_mode;
+
+  explicit weapon_mode_guard(Weapon* target)
+    : weapon(target)
+  {
+    if (weapon != nullptr) {
+      previous_mode = weapon->weapon_mode();
+      weapon->weapon_mode() = tf_weapon_primary_mode;
+    }
+  }
+
+  ~weapon_mode_guard()
+  {
+    if (weapon != nullptr) {
+      weapon->weapon_mode() = previous_mode;
+    }
+  }
+};
+
+struct crit_prediction_state
+{
+  float crit_token_bucket = 0.0f;
+  int crit_checks = 0;
+  int crit_seed_requests = 0;
+  float last_rapid_fire_crit_check_time = 0.0f;
+  float crit_time = 0.0f;
+  int current_seed = 0;
+};
+
+Weapon* saved_weapon = nullptr;
+int saved_current_seed = -1;
+
+crit_prediction_state read_crit_prediction_state(Weapon* weapon)
+{
+  return {
+    weapon->crit_token_bucket(),
+    weapon->crit_checks(),
+    weapon->crit_seed_requests(),
+    weapon->last_rapid_fire_crit_check_time(),
+    weapon->crit_time(),
+    weapon->current_seed()
+  };
+}
+
+void restore_crit_prediction_state(Weapon* weapon, const crit_prediction_state& state)
+{
+  weapon->crit_token_bucket() = state.crit_token_bucket;
+  weapon->crit_checks() = state.crit_checks;
+  weapon->crit_seed_requests() = state.crit_seed_requests;
+  weapon->last_rapid_fire_crit_check_time() = state.last_rapid_fire_crit_check_time;
+  weapon->crit_time() = state.crit_time;
+  weapon->current_seed() = saved_weapon == weapon && saved_current_seed != -1 ? saved_current_seed : state.current_seed;
+}
+
+}
+
+void ctf_weapon_base_calc_is_attack_critical_hook(Weapon* weapon)
+{
+  if (weapon == nullptr || ctf_weapon_base_calc_is_attack_critical_original == nullptr) {
+    return;
+  }
+
+  weapon_mode_guard mode_guard{ weapon };
+
+  if (prediction == nullptr || prediction->first_time_predicted) {
+    ctf_weapon_base_calc_is_attack_critical_original(weapon);
+    saved_weapon = weapon;
+    saved_current_seed = weapon->current_seed();
+    return;
+  }
+
+  const crit_prediction_state state = read_crit_prediction_state(weapon);
+  ctf_weapon_base_calc_is_attack_critical_original(weapon);
+  restore_crit_prediction_state(weapon, state);
+}

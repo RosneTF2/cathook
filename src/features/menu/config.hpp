@@ -668,6 +668,7 @@ struct Debug {
 struct crit_hack_config {
   bool enabled = false;
   struct button key = {.button = SDLK_UNKNOWN};
+  bool force_crits = true;
   bool always_melee = false;
   bool avoid_random = false;
 };

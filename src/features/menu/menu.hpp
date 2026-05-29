@@ -1417,8 +1417,9 @@ static void draw_aimbot_content() {
     cat_menu::slider_float("Assist strength", &config.aimbot.assist_strength, 0.0f, 100.0f, "%.0f%%");
     cat_menu::slider_int("Resolver yaws", &config.aimbot.resolver_max_yaws, 4, 24);
   });
-  cat_menu::flow_panel("Crit Hack", 0, 96.0f, [&]() {
+  cat_menu::flow_panel("Crit Hack", 0, 116.0f, [&]() {
     cat_menu::checkbox("Enable Crit Hack", &config.crithack.enabled);
+    cat_menu::checkbox("Force crits", &config.crithack.force_crits);
     cat_menu::checkbox("Always melee crit", &config.crithack.always_melee);
     cat_menu::checkbox("Avoid random crits", &config.crithack.avoid_random);
   });

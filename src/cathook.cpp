@@ -88,6 +88,7 @@ V  o o  V  file: src/cathook.cpp
 #include "features/combat/tickbase/tickbase.cpp"
 #include "features/combat/anti_aim/anti_aim.cpp"
 #include "features/combat/random_crits/crit_hack.cpp"
+#include "core/hooks/ctf_weapon_base_calc_is_attack_critical.cpp"
 #include "core/hooks/cl_read_packets.cpp"
 #include "core/hooks/cl_move.cpp"
 #include "core/hooks/client_mode_create_move.cpp"
@@ -1394,6 +1395,12 @@ bool initialize_game_runtime() {
     (prediction_run_simulation_fn)sigscan_module("client.so", sigs::prediction_run_simulation);
   error_assert(prediction_run_simulation_original == nullptr, "Failed to find CPrediction::RunSimulation");
 
+  ctf_weapon_base_calc_is_attack_critical_original =
+    (ctf_weapon_base_calc_is_attack_critical_fn)sigscan_module("client.so", sigs::ctf_weapon_base_calc_is_attack_critical);
+  if (ctf_weapon_base_calc_is_attack_critical_original == nullptr) {
+    print("Failed to find CTFWeaponBase::CalcIsAttackCritical; crit hack prediction fix disabled\n");
+  }
+
   initialize_cl_move_globals(host_should_run);
   
   int rv;
@@ -1469,6 +1476,14 @@ bool initialize_game_runtime() {
 
   rv = funchook_prepare(funchook, (void**)&prediction_run_simulation_original, (void*)prediction_run_simulation_hook);
   error_assert(rv != 0, "Failed to prepare CPrediction::RunSimulation hook\n");
+
+  if (ctf_weapon_base_calc_is_attack_critical_original != nullptr) {
+    rv = funchook_prepare(
+      funchook,
+      (void**)&ctf_weapon_base_calc_is_attack_critical_original,
+      (void*)ctf_weapon_base_calc_is_attack_critical_hook);
+    error_assert(rv != 0, "Failed to prepare CTFWeaponBase::CalcIsAttackCritical hook\n");
+  }
 
   key_values_constructor_original = (KeyValues* (*)(void*, const char*))sigscan_module("client.so", sigs::key_values_constructor);
   error_assert(key_values_constructor_original == nullptr, "Failed to find KeyValues() constructor");

@@ -361,7 +361,10 @@ void update_info(Player* local, Weapon* weapon) {
 
 crit_request get_crit_request(user_cmd* cmd, Weapon* weapon) {
   bool can_crit = available_crits > 0 && !crit_banned;
-  bool pressed = is_button_active(config.crithack.key);
+  bool pressed = config.crithack.force_crits || is_button_active(config.crithack.key);
+  if (config.crithack.always_melee && is_melee_weapon) {
+    pressed = true;
+  }
   
   bool skip = config.crithack.avoid_random;
   bool desync = command_to_seed(cmd->command_number, weapon, is_melee_weapon) == weapon->current_seed();

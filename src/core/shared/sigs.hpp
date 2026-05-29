@@ -72,6 +72,8 @@ constexpr const char* setup_bones =
   "55 48 89 E5 41 57 41 56 41 55 41 54 41 89 CC 53 48 89 FB 48 81 EC ? ? ? ? 48 8B 05 ? ? ? ?";
 constexpr const char* tf_weapon_base_gun_get_bullet_spread =
   "55 31 D2 48 89 FE B9 ? ? ? ? 48 89 E5 41 54 53 48 89 FB 48 83 EC ? 48 63 87 ? ? ? ? 48 C1 E0 ?";
+constexpr const char* ctf_weapon_base_calc_is_attack_critical =
+  "55 48 89 E5 41 55 41 54 53 48 89 FB 48 83 EC 08 E8 ? ? ? ? 48 85 C0 74 ? 48 8D 15 ? ? ? ? 31 C9 48 89 C7 48 8D 35 ? ? ? ? E8 ? ? ? ? 48 85 C0 49 89 C4 74";
 constexpr const char* ctf_player_anim_state_store =
   "E8 ? ? ? ? 48 8B 7D ? 49 89 84 24 ? ? ? ? 4C 89 E6 E8 ? ? ? ? 49 8D B4 24 ? ? ? ?";
 constexpr const char* base_animating_auto_allow_bone_access =

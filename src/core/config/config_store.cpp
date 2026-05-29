@@ -511,6 +511,10 @@ void config_store::import_config(const Config& config)
     set_float("misc.automation.navbot_crumb_blacklist_seconds", config.misc.automation.navbot_crumb_blacklist_seconds);
     set_bool("misc.automation.navbot_debug_text", config.misc.automation.navbot_debug_text);
     set_int("misc.automation.navbot_excluded_jobs_mask", static_cast<int>(config.misc.automation.navbot_excluded_jobs_mask));
+    set_bool("crithack.enabled", config.crithack.enabled);
+    set_bool("crithack.force_crits", config.crithack.force_crits);
+    set_bool("crithack.always_melee", config.crithack.always_melee);
+    set_bool("crithack.avoid_random", config.crithack.avoid_random);
     set_int("debug.font_height", config.debug.font_height);
     set_int("debug.font_weight", config.debug.font_weight);
     set_bool("debug.render_all_entities", config.debug.debug_render_all_entities);
@@ -1205,6 +1209,13 @@ void config_store::export_config(Config& config) const
     config.misc.automation.navbot_debug_text = get_bool("misc.automation.navbot_debug_text", config.misc.automation.navbot_debug_text);
     config.misc.automation.navbot_excluded_jobs_mask = static_cast<uint32_t>(
         get_int("misc.automation.navbot_excluded_jobs_mask", static_cast<int>(config.misc.automation.navbot_excluded_jobs_mask)));
+    config.crithack.enabled = get_bool("crithack.enabled", config.crithack.enabled);
+    const bool legacy_force_crits = get_bool("random_crits.force_crits", config.crithack.force_crits);
+    config.crithack.force_crits = get_bool("crithack.force_crits", legacy_force_crits);
+    const bool legacy_always_melee = get_bool("random_crits.always_melee_crit", config.crithack.always_melee);
+    config.crithack.always_melee = get_bool("crithack.always_melee", legacy_always_melee);
+    const bool legacy_avoid_random = get_bool("random_crits.save_bucket", config.crithack.avoid_random);
+    config.crithack.avoid_random = get_bool("crithack.avoid_random", legacy_avoid_random);
     config.debug.font_height = get_int("debug.font_height", config.debug.font_height);
     config.debug.font_weight = get_int("debug.font_weight", config.debug.font_weight);
     config.debug.debug_render_all_entities = get_bool("debug.render_all_entities", config.debug.debug_render_all_entities);
