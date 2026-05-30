@@ -19,6 +19,7 @@ V  o o  V  file: src/features/visuals/glow/player_model_glow.cpp
 #include <vector>
 
 #include "features/menu/config.hpp"
+#include "features/visuals/groups/visual_groups.hpp"
 
 #include "core/print.hpp"
 
@@ -44,6 +45,7 @@ constexpr const char* texture_group_other = "Other textures";
 
 struct glow_entity
 {
+  Entity* entity = nullptr;
   Player* player = nullptr;
   RGBA_float color{};
   RGBA_float color_z{};
@@ -129,6 +131,9 @@ render_state g_original_state{};
 int g_render_width = 0;
 int g_render_height = 0;
 bool g_rendering = false;
+int g_outline_scale = 0;
+float g_blur_scale = 0.0f;
+bool g_filled_body = false;
 glow_resource_status g_last_resource_status = glow_resource_status::ready;
 
 scoped_rendering_flag::scoped_rendering_flag()
@@ -161,98 +166,12 @@ scoped_rendering_flag::~scoped_rendering_flag()
 
 [[nodiscard]] int glow_outline_scale()
 {
-  return std::clamp(config.glow.outline_scale, 0, 10);
+  return std::clamp(g_outline_scale, 0, 10);
 }
 
 [[nodiscard]] float glow_blur_scale()
 {
-  return std::clamp(config.glow.blur_scale, 0.0f, 10.0f);
-}
-
-[[nodiscard]] bool glow_has_visible_effect()
-{
-  return glow_outline_scale() > 0 || config.glow.filled_body;
-}
-
-[[nodiscard]] RGBA_float player_glow_color(Player* player, Player* localplayer)
-{
-  if (player == localplayer) {
-    return config.glow.player.local_color;
-  }
-  if (player->is_friend()) {
-    return config.glow.player.friend_color;
-  }
-  if (player->get_team() == localplayer->get_team()) {
-    return config.glow.player.team_color;
-  }
-
-  return config.glow.player.enemy_color;
-}
-
-[[nodiscard]] RGBA_float player_glow_color_z(Player* player, Player* localplayer)
-{
-  if (player == localplayer) {
-    return config.glow.player.local_color;
-  }
-  if (player->is_friend()) {
-    return config.glow.player.friend_color_z;
-  }
-  if (player->get_team() == localplayer->get_team()) {
-    return config.glow.player.team_color_z;
-  }
-
-  return config.glow.player.enemy_color_z;
-}
-
-[[nodiscard]] bool should_store_player(Player* player, Player* localplayer)
-{
-  if (player == nullptr || localplayer == nullptr) {
-    return false;
-  }
-  if (player->get_class_id() != class_id::PLAYER || !player->is_alive() || player->is_dormant()) {
-    return false;
-  }
-  if (player == localplayer) {
-    return config.glow.player.local;
-  }
-  if (player->is_friend()) {
-    return config.glow.player.friends || (config.glow.player.team && player->get_team() == localplayer->get_team());
-  }
-  if (player->get_team() != localplayer->get_team() && !config.glow.player.enemy) {
-    return false;
-  }
-  if (player->get_team() == localplayer->get_team() && !config.glow.player.team) {
-    return false;
-  }
-
-  return true;
-}
-
-[[nodiscard]] float player_glow_alpha(Player* player, Player* localplayer)
-{
-  if (player == nullptr || localplayer == nullptr) {
-    return 0.0f;
-  }
-  if (player == localplayer) {
-    return 1.0f;
-  }
-
-  const auto start = std::max(0.0f, config.glow.start);
-  const auto end = std::max(start, config.glow.end);
-  const auto distance = glow_distance_between(player->get_collision_origin(), localplayer->get_collision_origin());
-  if (distance < start || distance > end) {
-    return 0.0f;
-  }
-
-  auto alpha = 1.0f;
-  if (config.glow.smooth_alpha) {
-    alpha = glow_remap_value_clamped(distance, end - glow_fade_distance, end, alpha, 0.0f);
-    if (start > 0.0f) {
-      alpha = glow_remap_value_clamped(distance, start + glow_fade_distance, start, alpha, 0.0f);
-    }
-  }
-
-  return std::clamp(alpha, 0.0f, 1.0f);
+  return std::clamp(g_blur_scale, 0.0f, 10.0f);
 }
 
 void release_material(Material*& material)
@@ -689,7 +608,7 @@ void second_end(RenderContext* render_context)
     }
   }
 
-  if (config.glow.filled_body) {
+  if (g_filled_body) {
     render_context->set_stencil_compare_mode(STENCILCOMPARISONFUNCTION_ALWAYS);
     render_context->set_stencil_write_mask(0x0);
     render_context->set_stencil_test_mask(0x0);
@@ -900,13 +819,21 @@ void store()
 {
   g_entities.clear();
   g_attachments.clear();
-  if (!config.glow.master || !glow_has_visible_effect() || engine == nullptr || entity_list == nullptr ||
-      !engine->is_in_game()) {
+  g_outline_scale = 0;
+  g_blur_scale = 0.0f;
+  g_filled_body = false;
+
+  if (engine == nullptr || entity_list == nullptr || !engine->is_in_game()) {
     return;
   }
 
   auto* localplayer = entity_list->get_localplayer();
   if (localplayer == nullptr) {
+    return;
+  }
+
+  visual_groups::ensure_defaults();
+  if (!visual_groups::groups_active()) {
     return;
   }
 
@@ -919,21 +846,32 @@ void store()
 
   const auto max_entities = std::max(entity_list->get_max_entities(), 0);
   for (auto index = 1; index <= max_entities; ++index) {
-    auto* player = entity_list->player_from_index(static_cast<unsigned int>(index));
-    if (!should_store_player(player, localplayer)) {
+    auto* entity = entity_list->entity_from_index(static_cast<unsigned int>(index));
+    if (entity == nullptr) {
       continue;
     }
 
-    const auto alpha = player_glow_alpha(player, localplayer);
+    const auto* group = visual_groups::group_for_entity(entity, true);
+    if (group == nullptr || (group->glow.outline_scale <= 0 && group->glow.filled_body == false)) {
+      continue;
+    }
+
+    const float alpha = visual_groups::alpha_for_entity(entity, group->glow.start, group->glow.end, group->glow.smooth_alpha);
     if (alpha <= 0.0f) {
       continue;
     }
 
-    auto color = player_glow_color(player, localplayer);
-    auto color_z = player_glow_color_z(player, localplayer);
+    g_outline_scale = std::max(g_outline_scale, group->glow.outline_scale);
+    g_blur_scale = std::max(g_blur_scale, group->glow.blur_scale);
+    g_filled_body = g_filled_body || group->glow.filled_body;
+
+    auto color = visual_groups::color_for_entity(entity, *group);
+    auto color_z = color;
     color.a *= alpha;
     color_z.a *= alpha;
-    g_entities.emplace_back(glow_entity{.player = player, .color = color, .color_z = color_z});
+
+    auto* player = entity->get_class_id() == class_id::PLAYER ? reinterpret_cast<Player*>(entity) : nullptr;
+    g_entities.emplace_back(glow_entity{.entity = entity, .player = player, .color = color, .color_z = color_z});
   }
 }
 
@@ -964,7 +902,11 @@ void render_first()
 
   first_begin(render_context);
   for (const auto& entity : g_entities) {
-    draw_player_model(entity.player);
+    if (entity.player != nullptr) {
+      draw_player_model(entity.player);
+    } else {
+      draw_glow_entity_model(entity.entity);
+    }
   }
   first_end(render_context);
 }
@@ -985,12 +927,20 @@ void render_second()
     set_model_glow_ignore_z(true);
     render_view->set_color_modulation(&entity.color_z);
     render_view->set_blend(entity.color_z.a);
-    draw_player_model(entity.player);
+    if (entity.player != nullptr) {
+      draw_player_model(entity.player);
+    } else {
+      draw_glow_entity_model(entity.entity);
+    }
 
     set_model_glow_ignore_z(false);
     render_view->set_color_modulation(&entity.color);
     render_view->set_blend(entity.color.a);
-    draw_player_model(entity.player);
+    if (entity.player != nullptr) {
+      draw_player_model(entity.player);
+    } else {
+      draw_glow_entity_model(entity.entity);
+    }
   }
   second_end(render_context);
 }
@@ -1003,6 +953,9 @@ void shutdown()
   g_original_state = render_state{};
   g_last_resource_status = glow_resource_status::ready;
   g_rendering = false;
+  g_outline_scale = 0;
+  g_blur_scale = 0.0f;
+  g_filled_body = false;
 }
 
 bool is_rendering()

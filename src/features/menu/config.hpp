@@ -20,6 +20,7 @@ V  o o  V  file: src/features/menu/config.hpp
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "games/tf2/sdk/entities/player.hpp"
 #include "games/tf2/sdk/aim_hitboxes.hpp"
@@ -175,163 +176,231 @@ struct ipc_config {
   bool auto_ignore_local_bots = true;
 };
 
-struct Esp {
-  enum class box_type {
-    OUTLINE = 0,
-    CORNER,
-    FILLED,
-    ROUNDED,
-    PROJECTED
+enum class esp_box_type {
+  outline = 0,
+  corner,
+  filled,
+  rounded,
+  projected
+};
+
+enum class mafia_level_position {
+  under_name = 0,
+  left,
+  right
+};
+
+enum class chams_material_type {
+  none,
+  flat,
+  flat_wireframe,
+  shaded,
+  shaded_wireframe,
+  fresnel,
+  fresnel_wireframe,
+  glossy,
+  glossy_wireframe,
+  additive,
+  additive_wireframe
+};
+
+struct group_esp_settings {
+  enum draw_flags : uint32_t {
+    name = 1u << 0,
+    name_background = 1u << 1,
+    box = 1u << 2,
+    distance = 1u << 3,
+    bones = 1u << 4,
+    health_bar = 1u << 5,
+    health_text = 1u << 6,
+    class_icon = 1u << 7,
+    class_text = 1u << 8,
+    weapon_text = 1u << 9,
+    priority = 1u << 10,
+    flags = 1u << 11,
+    ping = 1u << 12,
+    kdr = 1u << 13,
+    mafia_level = 1u << 14,
+    owner = 1u << 15,
+    level = 1u << 16,
+    ammo_text = 1u << 17,
+    intel_return_time = 1u << 18,
+    head_emoji = 1u << 19
   };
 
-  bool master = true;
-  bool lerp = false;
-  float lerp_speed = 12.0f;
-
-  struct Player {
-    enum class mafia_position {
-      UNDER_NAME = 0,
-      LEFT,
-      RIGHT
-    };
-
-    RGBA_float enemy_color = {.r = 1, .g = 0.501960784, .b = 0, .a = 1};
-    RGBA_float team_color = {.r = 1, .g = 1, .b = 1, .a = 1};
-    RGBA_float friend_color = {.r = 0, .g = 0.862745098, .b = 0.31372549, .a = 1};
-    
-    bool box = true;
-    box_type box_style = box_type::CORNER;
-    bool health_bar = true;    
-    bool name = true;
-    bool class_icon = false;
-    float class_icon_scale = 2.0f;
-    bool class_icon_teammates = false;
-    bool head_emoji = false;
-    float head_emoji_scale = 2.0f;
-    int head_emoji_style = 0;
-    bool head_emoji_teammates = false;
-    bool mafia_level = true;
-    mafia_position mafia_level_position = mafia_position::UNDER_NAME;
-    
-    struct Flags {
-      bool target_indicator = true;
-      bool friend_indicator = true;
-      bool scoped_indicator = false;
-    } flags;
-
-    bool enemy = true;
-    bool team = false;
-    bool friends = true;
-  } player;
-
-  struct Pickup {
-    bool box = false;    
-    box_type box_style = box_type::OUTLINE;
-    bool name = true;
-  } pickup;
-
-  struct Intelligence {
-    bool box = true;    
-    box_type box_style = box_type::CORNER;
-    bool name = true;
-  } intelligence;
-  
-  struct Buildings {
-    bool box = true;
-    box_type box_style = box_type::CORNER;
-    bool health_bar = true;    
-    bool name = true;
-
-    bool team = false;
-  } buildings;
-};
-
-struct Chams {
-  bool master = true;
-
-  struct Player {
-    bool enemy = true;
-
-    enum class material_type {
-      none,
-      flat,
-      flat_wireframe,
-      shaded,
-      shaded_wireframe,
-      fresnel,
-      fresnel_wireframe,
-      glossy,
-      glossy_wireframe,
-      additive,
-      additive_wireframe
-    };
-
-    struct ChamFlags {      
-      bool ignore_z = true;
-    };
-    
-    RGBA_float enemy_color = {.r = .8, .g = 0.701960784, .b = .1, .a = 1};
-    material_type enemy_material_type = material_type::flat;
-    RGBA_float enemy_color_z = {.r = 1, .g = 0.2, .b = .2, .a = 1};
-    material_type enemy_material_z_type = material_type::flat;
-    ChamFlags enemy_flags;
-    RGBA_float enemy_overlay_color = {.r = .8, .g = 0.701960784, .b = .1, .a = 1};
-    material_type enemy_overlay_material_type = material_type::none;
-    RGBA_float enemy_overlay_color_z = {.r = 1, .g = 0.2, .b = .2, .a = 1};
-    material_type enemy_overlay_material_z_type = material_type::none;
-    ChamFlags enemy_overlay_flags;
-
-    bool team = false;    
-    RGBA_float team_color = {.r = 0, .g = 1, .b = 0, .a = 1};
-    material_type team_material_type = material_type::shaded;
-    RGBA_float team_color_z = {.r = 0, .g = 0.25, .b = 1, .a = 1};    
-    material_type team_material_z_type = material_type::shaded;
-    ChamFlags team_flags;
-    
-    bool friends = true;
-    RGBA_float friend_color = {.r = 0, .g = 0.632745098, .b = 0.31372549, .a = 1};
-    material_type friend_material_type = material_type::flat;
-    RGBA_float friend_color_z = {.r = 0, .g = 1, .b = 0.20272549, .a = 1};
-    material_type friend_material_z_type = material_type::flat;
-    ChamFlags friends_flags;
-
-    bool local = false;
-    RGBA_float local_color = {.r = 0, .g = 0.8, .b = 0.35, .a = 1};
-    material_type local_material_type = material_type::shaded;
-
-    bool backtrack = false;
-    RGBA_float backtrack_color = {.r = 0.12f, .g = 0.95f, .b = 0.75f, .a = 0.42f};
-    RGBA_float backtrack_color_z = {.r = 0.95f, .g = 0.18f, .b = 0.55f, .a = 0.32f};
-    material_type backtrack_material_type = material_type::fresnel;
-    material_type backtrack_material_z_type = material_type::flat;
-    ChamFlags backtrack_flags;
-    int backtrack_ticks = 8;
-  } player;
-};
-
-struct glow_config {
-  bool master = false;
-  int outline_scale = 4;
-  float blur_scale = 2.0f;
+  uint32_t draw_mask = name | box | health_bar;
+  esp_box_type box_style = esp_box_type::corner;
   float start = 0.0f;
   float end = 8192.0f;
-  bool smooth_alpha = true;
+  bool smooth_alpha = false;
+  uint8_t background_alpha = 180;
+  float class_icon_scale = 2.0f;
+  float head_emoji_scale = 2.0f;
+  int head_emoji_style = 0;
+  ::mafia_level_position mafia_level_position = ::mafia_level_position::under_name;
+};
+
+struct group_chams_settings {
+  chams_material_type visible_material = chams_material_type::none;
+  chams_material_type occluded_material = chams_material_type::none;
+  bool ignore_z = true;
+};
+
+struct group_glow_settings {
+  int outline_scale = 0;
+  float blur_scale = 0.0f;
+  float start = 0.0f;
+  float end = 8192.0f;
+  bool smooth_alpha = false;
   bool filled_body = false;
+};
 
-  struct player_config {
-    bool enemy = true;
-    bool team = false;
-    bool friends = true;
-    bool local = false;
+struct visual_group {
+  enum target_flags : uint32_t {
+    target_players = 1u << 0,
+    target_buildings = 1u << 1,
+    target_projectiles = 1u << 2,
+    target_ragdolls = 1u << 3,
+    target_objective = 1u << 4,
+    target_npcs = 1u << 5,
+    target_health = 1u << 6,
+    target_ammo = 1u << 7,
+    target_money = 1u << 8,
+    target_powerups = 1u << 9,
+    target_spellbook = 1u << 10,
+    target_bombs = 1u << 11,
+    target_gargoyle = 1u << 12,
+    target_fake_angle = 1u << 13,
+    target_viewmodel_weapon = 1u << 14,
+    target_viewmodel_hands = 1u << 15
+  };
 
-    RGBA_float enemy_color = {.r = 1, .g = 0.501960784, .b = 0, .a = 1};
-    RGBA_float enemy_color_z = {.r = 1, .g = 0.501960784, .b = 0, .a = 1};
-    RGBA_float team_color = {.r = 1, .g = 1, .b = 1, .a = 1};
-    RGBA_float team_color_z = {.r = 1, .g = 1, .b = 1, .a = 1};
-    RGBA_float friend_color = {.r = 0, .g = 0.862745098, .b = 0.31372549, .a = 1};
-    RGBA_float friend_color_z = {.r = 0, .g = 0.862745098, .b = 0.31372549, .a = 1};
-    RGBA_float local_color = {.r = 0, .g = 0.8, .b = 0.35, .a = 1};
-  } player;
+  enum condition_flags : uint32_t {
+    condition_enemy = 1u << 0,
+    condition_team = 1u << 1,
+    condition_blu = 1u << 2,
+    condition_red = 1u << 3,
+    condition_local = 1u << 4,
+    condition_friends = 1u << 5,
+    condition_party = 1u << 6,
+    condition_priority = 1u << 7,
+    condition_target = 1u << 8,
+    condition_dormant = 1u << 9,
+    condition_cat = 1u << 10,
+    condition_ignored = 1u << 11
+  };
+
+  enum player_flags : uint32_t {
+    player_scout = 1u << 0,
+    player_soldier = 1u << 1,
+    player_pyro = 1u << 2,
+    player_demoman = 1u << 3,
+    player_heavy = 1u << 4,
+    player_engineer = 1u << 5,
+    player_medic = 1u << 6,
+    player_sniper = 1u << 7,
+    player_spy = 1u << 8,
+    player_invulnerable = 1u << 9,
+    player_crits = 1u << 10,
+    player_invisible = 1u << 11,
+    player_disguise = 1u << 12,
+    player_hurt = 1u << 13,
+    player_not_invisible = 1u << 14,
+    player_classes = player_scout | player_soldier | player_pyro | player_demoman | player_heavy | player_engineer | player_medic | player_sniper | player_spy,
+    player_conditions = player_invulnerable | player_crits | player_invisible | player_disguise | player_hurt | player_not_invisible
+  };
+
+  enum building_flags : uint32_t {
+    building_sentry = 1u << 0,
+    building_dispenser = 1u << 1,
+    building_teleporter = 1u << 2,
+    building_hurt = 1u << 3,
+    building_classes = building_sentry | building_dispenser | building_teleporter,
+    building_conditions = building_hurt
+  };
+
+  enum projectile_flags : uint32_t {
+    projectile_rocket = 1u << 0,
+    projectile_sticky = 1u << 1,
+    projectile_pipe = 1u << 2,
+    projectile_arrow = 1u << 3,
+    projectile_heal = 1u << 4,
+    projectile_flare = 1u << 5,
+    projectile_fire = 1u << 6,
+    projectile_repair = 1u << 7,
+    projectile_cleaver = 1u << 8,
+    projectile_milk = 1u << 9,
+    projectile_jarate = 1u << 10,
+    projectile_gas = 1u << 11,
+    projectile_bauble = 1u << 12,
+    projectile_baseball = 1u << 13,
+    projectile_energy = 1u << 14,
+    projectile_short_circuit = 1u << 15,
+    projectile_meteor_shower = 1u << 16,
+    projectile_lightning = 1u << 17,
+    projectile_fireball = 1u << 18,
+    projectile_bomb = 1u << 19,
+    projectile_bats = 1u << 20,
+    projectile_pumpkin = 1u << 21,
+    projectile_monoculus = 1u << 22,
+    projectile_skeleton = 1u << 23,
+    projectile_misc = 1u << 24,
+    projectile_crit = 1u << 25,
+    projectile_minicrit = 1u << 26,
+    projectile_classes = projectile_rocket | projectile_sticky | projectile_pipe | projectile_arrow | projectile_heal | projectile_flare | projectile_fire | projectile_repair | projectile_cleaver | projectile_milk | projectile_jarate | projectile_gas | projectile_bauble | projectile_baseball | projectile_energy | projectile_short_circuit | projectile_meteor_shower | projectile_lightning | projectile_fireball | projectile_bomb | projectile_bats | projectile_pumpkin | projectile_monoculus | projectile_skeleton | projectile_misc,
+    projectile_conditions = projectile_crit | projectile_minicrit
+  };
+
+  enum backtrack_flags : uint32_t {
+    backtrack_enabled = 1u << 0,
+    backtrack_ignore_z = 1u << 1,
+    backtrack_last = 1u << 2,
+    backtrack_first = 1u << 3,
+    backtrack_always = 1u << 4
+  };
+
+  enum trajectory_flags : uint32_t {
+    trajectory_enabled = 1u << 0,
+    trajectory_ignore_z = 1u << 1,
+    trajectory_predict = 1u << 2,
+    trajectory_radius = 1u << 3,
+    trajectory_trace = 1u << 4,
+    trajectory_sphere = 1u << 5,
+    trajectory_path = 1u << 6
+  };
+
+  enum sightline_flags : uint32_t {
+    sightline_enabled = 1u << 0,
+    sightline_ignore_z = 1u << 1
+  };
+
+  std::string name = "Group";
+  RGBA_float color = {.r = 1.0f, .g = 0.501960784f, .b = 0.0f, .a = 1.0f};
+  bool tags_override_color = true;
+  uint32_t targets = 0;
+  uint32_t conditions = condition_enemy | condition_team | condition_blu | condition_red;
+  uint32_t players = 0;
+  uint32_t buildings = 0;
+  uint32_t projectiles = 0;
+  group_esp_settings esp{};
+  group_chams_settings chams{};
+  group_glow_settings glow{};
+  bool offscreen_arrows = false;
+  int offscreen_arrows_offset = 100;
+  float offscreen_arrows_max_distance = 1000.0f;
+  bool pickup_timer = false;
+  uint32_t backtrack = 0;
+  group_chams_settings backtrack_chams{};
+  group_glow_settings backtrack_glow{};
+  uint32_t trajectory = 0;
+  uint32_t sightlines = sightline_ignore_z;
+};
+
+struct visual_group_config {
+  static constexpr std::size_t max_groups = 32;
+
+  uint32_t active_group_mask = 0;
+  std::vector<visual_group> groups{};
 };
 
 struct Visuals {
@@ -677,9 +746,7 @@ struct Config {
   Aim aimbot;
   backtrack_config backtrack;
   ipc_config ipc;
-  Esp esp;
-  Chams chams;
-  glow_config glow;
+  visual_group_config visual_groups;
   Visuals visuals;
   Misc misc;
   Debug debug;

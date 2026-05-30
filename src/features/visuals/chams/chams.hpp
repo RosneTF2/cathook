@@ -18,6 +18,7 @@ V  o o  V  file: src/features/visuals/chams/chams.hpp
 #include "core/assert.hpp"
 
 #include "features/menu/config.hpp"
+#include "features/visuals/groups/visual_groups.hpp"
 
 #include "games/tf2/sdk/entities/player.hpp"
 #include "games/tf2/sdk/interfaces/material_system.hpp"
@@ -181,44 +182,44 @@ static void set_material_information(Material* material, RGBA_float color, bool 
   model_render->forced_material_override(material, override_type);
 }
 
-[[nodiscard]] static size_t get_material_index(Chams::Player::material_type type) {
+[[nodiscard]] static size_t get_material_index(chams_material_type type) {
   switch (type) {
-    case Chams::Player::material_type::none:
+    case chams_material_type::none:
       return 0;
-    case Chams::Player::material_type::flat:
-    case Chams::Player::material_type::flat_wireframe:
+    case chams_material_type::flat:
+    case chams_material_type::flat_wireframe:
       return 1;
-    case Chams::Player::material_type::shaded:
-    case Chams::Player::material_type::shaded_wireframe:
+    case chams_material_type::shaded:
+    case chams_material_type::shaded_wireframe:
       return 2;
-    case Chams::Player::material_type::fresnel:
-    case Chams::Player::material_type::fresnel_wireframe:
+    case chams_material_type::fresnel:
+    case chams_material_type::fresnel_wireframe:
       return 3;
-    case Chams::Player::material_type::glossy:
-    case Chams::Player::material_type::glossy_wireframe:
+    case chams_material_type::glossy:
+    case chams_material_type::glossy_wireframe:
       return 4;
-    case Chams::Player::material_type::additive:
-    case Chams::Player::material_type::additive_wireframe:
+    case chams_material_type::additive:
+    case chams_material_type::additive_wireframe:
       return 5;
     default:
       return 0;
   }
 }
 
-[[nodiscard]] static bool is_wireframe_material(Chams::Player::material_type type) {
+[[nodiscard]] static bool is_wireframe_material(chams_material_type type) {
   switch (type) {
-    case Chams::Player::material_type::flat_wireframe:
-    case Chams::Player::material_type::shaded_wireframe:
-    case Chams::Player::material_type::fresnel_wireframe:
-    case Chams::Player::material_type::glossy_wireframe:
-    case Chams::Player::material_type::additive_wireframe:
+    case chams_material_type::flat_wireframe:
+    case chams_material_type::shaded_wireframe:
+    case chams_material_type::fresnel_wireframe:
+    case chams_material_type::glossy_wireframe:
+    case chams_material_type::additive_wireframe:
       return true;
     default:
       return false;
   }
 }
 
-[[nodiscard]] static Material* get_material(Chams::Player::material_type type) {
+[[nodiscard]] static Material* get_material(chams_material_type type) {
   const auto material_index = get_material_index(type);
   if (material_index >= materials.size()) {
     return nullptr;
@@ -227,59 +228,15 @@ static void set_material_information(Material* material, RGBA_float color, bool 
   return materials[material_index];
 }
 
-[[nodiscard]] static chams_settings get_chams_settings(Player* subject_player, Player* localplayer) {
+[[nodiscard]] static chams_settings get_chams_settings(const visual_group& group) {
   auto settings = chams_settings{};
-  if (subject_player == nullptr || localplayer == nullptr) {
-    return settings;
-  }
-
-  if (subject_player->get_team() != localplayer->get_team()) {
-    settings.color = config.chams.player.enemy_color;
-    settings.color_z = config.chams.player.enemy_color_z;
-    settings.ignore_z = config.chams.player.enemy_flags.ignore_z;
-    settings.wireframe = is_wireframe_material(config.chams.player.enemy_material_type);
-    settings.wireframe_z = is_wireframe_material(config.chams.player.enemy_material_z_type);
-    settings.material = get_material(config.chams.player.enemy_material_type);
-    settings.material_z = get_material(config.chams.player.enemy_material_z_type);
-    settings.color_overlay = config.chams.player.enemy_overlay_color;
-    settings.color_z_overlay = config.chams.player.enemy_overlay_color_z;
-    settings.ignore_z_overlay = config.chams.player.enemy_overlay_flags.ignore_z;
-    settings.wireframe_overlay = is_wireframe_material(config.chams.player.enemy_overlay_material_type);
-    settings.wireframe_z_overlay = is_wireframe_material(config.chams.player.enemy_overlay_material_z_type);
-    settings.material_overlay = get_material(config.chams.player.enemy_overlay_material_type);
-    settings.material_z_overlay = get_material(config.chams.player.enemy_overlay_material_z_type);
-  }
-
-  if (subject_player->get_team() == localplayer->get_team()) {
-    settings.color = config.chams.player.team_color;
-    settings.color_z = config.chams.player.team_color_z;
-    settings.ignore_z = config.chams.player.team_flags.ignore_z;
-    settings.wireframe = is_wireframe_material(config.chams.player.team_material_type);
-    settings.wireframe_z = is_wireframe_material(config.chams.player.team_material_z_type);
-    settings.material = get_material(config.chams.player.team_material_type);
-    settings.material_z = get_material(config.chams.player.team_material_z_type);
-  }
-
-  if (subject_player->is_friend()) {
-    settings.color = config.chams.player.friend_color;
-    settings.color_z = config.chams.player.friend_color_z;
-    settings.ignore_z = config.chams.player.friends_flags.ignore_z;
-    settings.wireframe = is_wireframe_material(config.chams.player.friend_material_type);
-    settings.wireframe_z = is_wireframe_material(config.chams.player.friend_material_z_type);
-    settings.material = get_material(config.chams.player.friend_material_type);
-    settings.material_z = get_material(config.chams.player.friend_material_z_type);
-  }
-
-  if (subject_player == localplayer) {
-    settings.color = config.chams.player.local_color;
-    settings.color_z = RGBA_float{};
-    settings.ignore_z = false;
-    settings.wireframe = is_wireframe_material(config.chams.player.local_material_type);
-    settings.wireframe_z = settings.wireframe;
-    settings.material = get_material(config.chams.player.local_material_type);
-    settings.material_z = settings.material;
-  }
-
+  settings.color = group.color;
+  settings.color_z = group.color;
+  settings.ignore_z = group.chams.ignore_z;
+  settings.wireframe = is_wireframe_material(group.chams.visible_material);
+  settings.wireframe_z = is_wireframe_material(group.chams.occluded_material);
+  settings.material = get_material(group.chams.visible_material);
+  settings.material_z = get_material(group.chams.occluded_material);
   return settings;
 }
 

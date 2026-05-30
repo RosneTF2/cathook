@@ -93,6 +93,7 @@ V  o o  V  file: src/cathook.cpp
 #include "core/hooks/cl_move.cpp"
 #include "core/hooks/client_mode_create_move.cpp"
 #include "core/hooks/client_create_move.cpp"
+#include "features/visuals/groups/visual_groups.cpp"
 #include "core/hooks/equip_region_unlock.cpp"
 #include "core/hooks/region_selector.cpp"
 #include "core/hooks/tf_gc_client_system.cpp"

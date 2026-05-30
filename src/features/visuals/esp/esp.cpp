@@ -37,6 +37,7 @@ V  o o  V  file: src/features/visuals/esp/esp.cpp
 #include "features/menu/config.hpp"
 #include "features/visuals/thirdperson.hpp"
 #include "features/visuals/overlay_projection.hpp"
+#include "features/visuals/groups/visual_groups.hpp"
 
 #include "games/tf2/sdk/entities/building.hpp"
 #include "games/tf2/sdk/entities/player.hpp"
@@ -198,6 +199,16 @@ unsigned int g_esp_smoothing_frame = 0;
 std::string g_esp_level_name{};
 bool g_esp_was_in_game = false;
 
+[[nodiscard]] bool esp_lerp_enabled()
+{
+  return true;
+}
+
+[[nodiscard]] float esp_lerp_speed()
+{
+  return 12.0f;
+}
+
 [[nodiscard]] bool get_entity_screen_bounds(Entity* entity, esp_bounds* bounds);
 [[nodiscard]] bool get_entity_projected_box(Entity* entity, projected_box* box);
 [[nodiscard]] Vec3 get_esp_draw_origin(Entity* entity);
@@ -270,7 +281,7 @@ bool g_esp_was_in_game = false;
 
 [[nodiscard]] float esp_lerp_amount()
 {
-  if (!config.esp.lerp) {
+  if (!esp_lerp_enabled()) {
     return 1.0f;
   }
 
@@ -281,7 +292,7 @@ bool g_esp_was_in_game = false;
     frame_time = ImGui::GetIO().DeltaTime;
   }
 
-  const auto speed = std::max(config.esp.lerp_speed, 1.0f);
+  const auto speed = std::max(esp_lerp_speed(), 1.0f);
   return std::clamp(1.0f - std::exp(-speed * frame_time), 0.0f, 1.0f);
 }
 
@@ -357,7 +368,7 @@ bool g_esp_was_in_game = false;
 
 void begin_esp_smoothing_frame()
 {
-  if (!config.esp.lerp) {
+  if (!esp_lerp_enabled()) {
     g_esp_smoothing_states.clear();
     return;
   }
@@ -371,7 +382,7 @@ void begin_esp_smoothing_frame()
 
 void cleanup_esp_smoothing_states()
 {
-  if (!config.esp.lerp) {
+  if (!esp_lerp_enabled()) {
     g_esp_smoothing_states.clear();
     return;
   }
@@ -388,7 +399,7 @@ void cleanup_esp_smoothing_states()
 [[nodiscard]] esp_bounds smooth_esp_bounds(Entity* entity, const esp_bounds& target_bounds)
 {
   const auto key = get_esp_entity_key(entity);
-  if (!config.esp.lerp || !is_valid_esp_entity_key(key)) {
+  if (!esp_lerp_enabled() || !is_valid_esp_entity_key(key)) {
     return target_bounds;
   }
 
@@ -409,7 +420,7 @@ void cleanup_esp_smoothing_states()
 [[nodiscard]] ImVec2 smooth_esp_point(Entity* entity, const ImVec2& target_point, esp_smoothing_point point)
 {
   const auto key = get_esp_entity_key(entity);
-  if (!config.esp.lerp || !is_valid_esp_entity_key(key)) {
+  if (!esp_lerp_enabled() || !is_valid_esp_entity_key(key)) {
     return target_point;
   }
 
@@ -441,7 +452,7 @@ void smooth_projected_box(Entity* entity, projected_box* box)
   }
 
   const auto key = get_esp_entity_key(entity);
-  if (!config.esp.lerp || !is_valid_esp_entity_key(key)) {
+  if (!esp_lerp_enabled() || !is_valid_esp_entity_key(key)) {
     return;
   }
 
@@ -689,15 +700,9 @@ void reset_head_emoji_texture()
 
 [[nodiscard]] RGBA player_esp_color(Player* player, Player* localplayer)
 {
-  auto color = config.esp.player.enemy_color.to_RGBA();
-  if (player->get_team() == localplayer->get_team()) {
-    color = config.esp.player.team_color.to_RGBA();
-  }
-  if (config.esp.player.friends && player->is_friend()) {
-    color = config.esp.player.friend_color.to_RGBA();
-  }
-
-  return color;
+  (void)localplayer;
+  const auto* group = player != nullptr ? visual_groups::group_for_entity(player->to_entity(), false) : nullptr;
+  return group != nullptr ? visual_groups::color_for_entity(player->to_entity(), *group).to_RGBA() : RGBA{255, 255, 255, 255};
 }
 
 [[nodiscard]] Vec3 get_esp_draw_origin(Entity* entity)
@@ -867,8 +872,7 @@ template <typename value_type>
 
 [[nodiscard]] int get_head_emoji_tile_column()
 {
-  const auto style = std::clamp(config.esp.player.head_emoji_style, 0, cathook_head_emoji_style_count - 1);
-  return cathook_head_emoji_first_tile_column + style;
+  return cathook_head_emoji_first_tile_column;
 }
 
 void draw_atlas_tile(
@@ -1224,22 +1228,22 @@ void draw_projected_box(ImDrawList* draw_list, const projected_box& box, ImU32 c
   }
 }
 
-void draw_esp_box(ImDrawList* draw_list, Entity* entity, const esp_bounds& bounds, Esp::box_type box_style, ImU32 color, float alpha_scale)
+void draw_esp_box(ImDrawList* draw_list, Entity* entity, const esp_bounds& bounds, esp_box_type box_style, ImU32 color, float alpha_scale)
 {
   switch (box_style) {
-  case Esp::box_type::OUTLINE:
+  case esp_box_type::outline:
     draw_outline_box(draw_list, bounds, color, alpha_scale);
     break;
-  case Esp::box_type::CORNER:
+  case esp_box_type::corner:
     draw_corner_box(draw_list, bounds, color, alpha_scale);
     break;
-  case Esp::box_type::FILLED:
+  case esp_box_type::filled:
     draw_filled_box(draw_list, bounds, color, alpha_scale);
     break;
-  case Esp::box_type::ROUNDED:
+  case esp_box_type::rounded:
     draw_rounded_box(draw_list, bounds, color, alpha_scale);
     break;
-  case Esp::box_type::PROJECTED: {
+  case esp_box_type::projected: {
     auto box = projected_box{};
     if (entity != nullptr && get_entity_projected_box(entity, &box)) {
       smooth_projected_box(entity, &box);
@@ -1299,9 +1303,9 @@ void draw_text(ImDrawList* draw_list, const ImVec2& position, ImU32 color, const
   draw_list->AddText(position, color, text.c_str());
 }
 
-void draw_player_mafia_text(ImDrawList* draw_list, const esp_bounds& bounds, Player* player, Entity* player_resource, float right_aligned_y = -1.0f)
+void draw_player_mafia_text(ImDrawList* draw_list, const esp_bounds& bounds, Player* player, Entity* player_resource, const visual_group& group, float right_aligned_y = -1.0f)
 {
-  if (draw_list == nullptr || player == nullptr || player_resource == nullptr || !config.esp.player.mafia_level) {
+  if (draw_list == nullptr || player == nullptr || player_resource == nullptr || (group.esp.draw_mask & group_esp_settings::mafia_level) == 0) {
     return;
   }
 
@@ -1312,19 +1316,19 @@ void draw_player_mafia_text(ImDrawList* draw_list, const esp_bounds& bounds, Pla
 
   constexpr auto mafia_color = IM_COL32(255, 255, 255, 255);
   const auto line_height = ImGui::GetTextLineHeight();
-  switch (config.esp.player.mafia_level_position) {
-  case Esp::Player::mafia_position::LEFT: {
+  switch (group.esp.mafia_level_position) {
+  case mafia_level_position::left: {
     const auto text_size = ImGui::CalcTextSize(mafia_text.c_str());
     draw_text(draw_list, ImVec2(bounds.min_x - cathook_text_padding - text_size.x, bounds.min_y), mafia_color, mafia_text);
     break;
   }
-  case Esp::Player::mafia_position::RIGHT:
+  case mafia_level_position::right:
     draw_text(draw_list, ImVec2(bounds.max_x + cathook_text_padding, right_aligned_y >= 0.0f ? right_aligned_y : bounds.min_y), mafia_color, mafia_text);
     break;
-  case Esp::Player::mafia_position::UNDER_NAME:
+  case mafia_level_position::under_name:
   default: {
     auto text_y = bounds.min_y - line_height - cathook_text_padding;
-    if (config.esp.player.name) {
+    if ((group.esp.draw_mask & group_esp_settings::name) != 0) {
       text_y -= line_height;
     }
     draw_text_centered(draw_list, ImVec2((bounds.min_x + bounds.max_x) * 0.5f, text_y), mafia_color, mafia_text);
@@ -1333,13 +1337,13 @@ void draw_player_mafia_text(ImDrawList* draw_list, const esp_bounds& bounds, Pla
   }
 }
 
-void draw_player_class_icon(ImDrawList* draw_list, const esp_bounds& bounds, Player* player, Player* localplayer)
+void draw_player_class_icon(ImDrawList* draw_list, const esp_bounds& bounds, Player* player, Player* localplayer, const visual_group& group)
 {
-  if (draw_list == nullptr || player == nullptr || localplayer == nullptr || !config.esp.player.class_icon || render_view == nullptr) {
+  if (draw_list == nullptr || player == nullptr || localplayer == nullptr || (group.esp.draw_mask & group_esp_settings::class_icon) == 0 || render_view == nullptr) {
     return;
   }
 
-  if (!should_draw_player_overlay_icon(player, localplayer, config.esp.player.class_icon_teammates)) {
+  if (!should_draw_player_overlay_icon(player, localplayer, (group.conditions & visual_group::condition_team) != 0)) {
     return;
   }
 
@@ -1354,14 +1358,14 @@ void draw_player_class_icon(ImDrawList* draw_list, const esp_bounds& bounds, Pla
   }
 
   auto text_lines_above = 0.0f;
-  if (config.esp.player.name) {
+  if ((group.esp.draw_mask & group_esp_settings::name) != 0) {
     text_lines_above += ImGui::GetTextLineHeight();
   }
-  if (config.esp.player.mafia_level && config.esp.player.mafia_level_position == Esp::Player::mafia_position::UNDER_NAME) {
+  if ((group.esp.draw_mask & group_esp_settings::mafia_level) != 0 && group.esp.mafia_level_position == mafia_level_position::under_name) {
     text_lines_above += ImGui::GetTextLineHeight();
   }
 
-  const auto size = std::clamp(bounds.height() * 0.22f * config.esp.player.class_icon_scale, 16.0f, 44.0f);
+  const auto size = std::clamp(bounds.height() * 0.22f * group.esp.class_icon_scale, 16.0f, 44.0f);
   const auto center = ImVec2(
     bounds.center().x,
     bounds.min_y - text_lines_above - cathook_text_padding - (size * 0.5f));
@@ -1369,13 +1373,13 @@ void draw_player_class_icon(ImDrawList* draw_list, const esp_bounds& bounds, Pla
   draw_atlas_tile(draw_list, texture, tile_index, cathook_class_icon_tile_row, center, size);
 }
 
-void draw_player_head_emoji(ImDrawList* draw_list, const esp_bounds& bounds, Player* player, Player* localplayer)
+void draw_player_head_emoji(ImDrawList* draw_list, const esp_bounds& bounds, Player* player, Player* localplayer, const visual_group& group)
 {
-  if (draw_list == nullptr || player == nullptr || localplayer == nullptr || !config.esp.player.head_emoji || render_view == nullptr) {
+  if (draw_list == nullptr || player == nullptr || localplayer == nullptr || (group.esp.draw_mask & group_esp_settings::head_emoji) == 0 || render_view == nullptr) {
     return;
   }
 
-  if (!should_draw_player_overlay_icon(player, localplayer, config.esp.player.head_emoji_teammates)) {
+  if (!should_draw_player_overlay_icon(player, localplayer, (group.conditions & visual_group::condition_team) != 0)) {
     return;
   }
 
@@ -1407,8 +1411,8 @@ void draw_player_head_emoji(ImDrawList* draw_list, const esp_bounds& bounds, Pla
 
   const auto delta = get_esp_draw_origin(player->to_entity()) - get_esp_draw_origin(localplayer->to_entity());
   const auto distance = std::sqrt((delta.x * delta.x) + (delta.y * delta.y) + (delta.z * delta.z));
-  const auto distance_size = ((cathook_head_emoji_size_base * config.esp.player.head_emoji_scale) / (distance + 10.0f)) + cathook_head_emoji_size_bias;
-  const auto bounds_size = bounds.height() * 0.22f * config.esp.player.head_emoji_scale;
+  const auto distance_size = ((cathook_head_emoji_size_base * group.esp.head_emoji_scale) / (distance + 10.0f)) + cathook_head_emoji_size_bias;
+  const auto bounds_size = bounds.height() * 0.22f * group.esp.head_emoji_scale;
   const auto max_size = std::max(12.0f, bounds.height() * 0.45f);
   const auto size = std::clamp(std::max(bounds_size, distance_size * 0.75f), 12.0f, max_size);
   if (size <= 0.0f) {
@@ -1429,29 +1433,18 @@ void draw_player_head_emoji(ImDrawList* draw_list, const esp_bounds& bounds, Pla
   if (!should_consider_player_for_esp(player, localplayer)) {
     return false;
   }
-  if (player->get_team() != localplayer->get_team() && !config.esp.player.enemy && !player->is_friend()) {
-    return false;
-  }
-  if (player->get_team() == localplayer->get_team() && !config.esp.player.team && !player->is_friend()) {
-    return false;
-  }
-  if (player->is_friend() && !config.esp.player.friends && (!config.esp.player.team && player->get_team() == localplayer->get_team())) {
-    return false;
-  }
 
-  return true;
+  return visual_groups::group_for_entity(player->to_entity(), false) != nullptr;
 }
 
 [[nodiscard]] bool should_draw_teammate_head_emoji(Player* player, Player* localplayer)
 {
-  if (!config.esp.player.head_emoji || !config.esp.player.head_emoji_teammates) {
-    return false;
-  }
   if (!should_consider_player_for_esp(player, localplayer)) {
     return false;
   }
 
-  return player->get_team() == localplayer->get_team();
+  const auto* group = visual_groups::group_for_entity(player->to_entity(), false);
+  return group != nullptr && (group->esp.draw_mask & group_esp_settings::head_emoji) != 0;
 }
 
 void draw_player_head_emoji_only(ImDrawList* draw_list, Player* player, Player* localplayer)
@@ -1470,10 +1463,12 @@ void draw_player_head_emoji_only(ImDrawList* draw_list, Player* player, Player* 
     return;
   }
 
-  draw_player_head_emoji(draw_list, smooth_esp_bounds(entity, bounds), player, localplayer);
+  if (const auto* group = visual_groups::group_for_entity(entity, false)) {
+    draw_player_head_emoji(draw_list, smooth_esp_bounds(entity, bounds), player, localplayer, *group);
+  }
 }
 
-void draw_player_esp(ImDrawList* draw_list, Player* player, Player* localplayer, Entity* player_resource)
+void draw_player_esp(ImDrawList* draw_list, Player* player, Player* localplayer, Entity* player_resource, const visual_group& group)
 {
   auto bounds = esp_bounds{};
   if (!get_stable_entity_screen_bounds(player->to_entity(), &bounds)) {
@@ -1481,19 +1476,23 @@ void draw_player_esp(ImDrawList* draw_list, Player* player, Player* localplayer,
   }
   bounds = smooth_esp_bounds(player->to_entity(), bounds);
 
-  const auto base_color = player_esp_color(player, localplayer);
-  const auto color = to_imgui_color(base_color);
-  constexpr float alpha_scale = 1.0f;
+  auto base_color = visual_groups::color_for_entity(player->to_entity(), group);
+  const float alpha_scale = visual_groups::alpha_for_entity(player->to_entity(), group.esp.start, group.esp.end, group.esp.smooth_alpha);
+  if (alpha_scale <= 0.0f) {
+    return;
+  }
+  base_color.a *= alpha_scale;
+  const auto color = to_imgui_color(base_color.to_RGBA());
 
-  if (config.esp.player.box) {
-    draw_esp_box(draw_list, player->to_entity(), bounds, config.esp.player.box_style, color, alpha_scale);
+  if ((group.esp.draw_mask & group_esp_settings::box) != 0) {
+    draw_esp_box(draw_list, player->to_entity(), bounds, group.esp.box_style, color, alpha_scale);
   }
 
-  if (config.esp.player.health_bar) {
+  if ((group.esp.draw_mask & group_esp_settings::health_bar) != 0) {
     draw_vertical_health_bar(draw_list, bounds, player->get_health(), player->get_max_health(), alpha_scale);
   }
 
-  if (config.esp.player.name) {
+  if ((group.esp.draw_mask & group_esp_settings::name) != 0) {
     wchar_t wide_name[32]{};
     player->get_player_name(wide_name);
     const auto name = wide_to_utf8(wide_name);
@@ -1502,15 +1501,15 @@ void draw_player_esp(ImDrawList* draw_list, Player* player, Player* localplayer,
 
   float flag_y = bounds.min_y;
   const auto flag_x = bounds.max_x + cathook_text_padding;
-  if (config.esp.player.flags.target_indicator && player == aimbot::active_target_player()) {
+  if ((group.esp.draw_mask & group_esp_settings::flags) != 0 && player == aimbot::active_target_player()) {
     draw_text(draw_list, ImVec2(flag_x, flag_y), IM_COL32(255, 0, 0, 255), "TARGET");
     flag_y += ImGui::GetTextLineHeight();
   }
-  if (config.esp.player.flags.friend_indicator && player->is_friend()) {
+  if ((group.esp.draw_mask & group_esp_settings::flags) != 0 && player->is_friend()) {
     draw_text(draw_list, ImVec2(flag_x, flag_y), IM_COL32(0, 220, 80, 255), "FRIEND");
     flag_y += ImGui::GetTextLineHeight();
   }
-  if (config.esp.player.flags.scoped_indicator && player->is_scoped()) {
+  if ((group.esp.draw_mask & group_esp_settings::flags) != 0 && player->is_scoped()) {
     draw_text(draw_list, ImVec2(flag_x, flag_y), IM_COL32(0, 220, 80, 255), "ZOOM");
     flag_y += ImGui::GetTextLineHeight();
   }
@@ -1526,9 +1525,9 @@ void draw_player_esp(ImDrawList* draw_list, Player* player, Player* localplayer,
     }
   }
 
-  draw_player_class_icon(draw_list, bounds, player, localplayer);
-  draw_player_head_emoji(draw_list, bounds, player, localplayer);
-  draw_player_mafia_text(draw_list, bounds, player, player_resource, flag_y);
+  draw_player_class_icon(draw_list, bounds, player, localplayer, group);
+  draw_player_head_emoji(draw_list, bounds, player, localplayer, group);
+  draw_player_mafia_text(draw_list, bounds, player, player_resource, group, flag_y);
 }
 
 [[nodiscard]] bool should_draw_building(Entity* entity, Player* localplayer)
@@ -1545,137 +1544,69 @@ void draw_player_esp(ImDrawList* draw_list, Player* player, Player* localplayer,
     return false;
   }
 
-  if (entity->get_team() == localplayer->get_team() && !config.esp.buildings.team) {
-    return false;
-  }
-
-  return true;
+  return visual_groups::group_for_entity(entity, false) != nullptr;
 }
 
-void draw_building_esp(ImDrawList* draw_list, Entity* entity, Player* localplayer)
-{
-  auto bounds = esp_bounds{};
-  if (!get_stable_entity_screen_bounds(entity, &bounds)) {
-    return;
-  }
-  bounds = smooth_esp_bounds(entity, bounds);
-
-  auto* building = reinterpret_cast<Building*>(entity);
-  auto color = config.esp.player.enemy_color.to_RGBA();
-  if (entity->get_team() == localplayer->get_team()) {
-    color = config.esp.player.team_color.to_RGBA();
-  }
-
-  if (config.esp.buildings.box) {
-    draw_esp_box(draw_list, entity, bounds, config.esp.buildings.box_style, to_imgui_color(color), 1.0f);
-  }
-
-  if (config.esp.buildings.health_bar) {
-    draw_vertical_health_bar(draw_list, bounds, building->get_health(), building->get_max_health(), 1.0f);
-  }
-
-  if (!config.esp.buildings.name) {
-    return;
-  }
-
-  std::string label{};
-  switch (entity->get_class_id()) {
-  case class_id::DISPENSER:
-    label = "DISPENSER";
-    break;
-  case class_id::SENTRY:
-    label = "SENTRY";
-    break;
-  case class_id::TELEPORTER:
-    label = "TELEPORTER";
-    break;
-  default:
-    break;
-  }
-
-  draw_text_centered(draw_list, ImVec2((bounds.min_x + bounds.max_x) * 0.5f, bounds.max_y + 2.0f), IM_COL32(255, 255, 255, 255), label);
-}
-
-void draw_pickup_esp(ImDrawList* draw_list, Entity* entity, Player* localplayer)
+void draw_group_entity_esp(ImDrawList* draw_list, Entity* entity, const visual_group& group)
 {
   if (draw_list == nullptr || entity == nullptr) {
     return;
   }
-  if (entity->is_dormant()) {
-    return;
-  }
 
-  auto screen = Vec3{};
-  auto origin = get_esp_draw_origin(entity);
-  if (!overlay_projection::world_to_screen(origin, &screen)) {
+  const float alpha_scale = visual_groups::alpha_for_entity(entity, group.esp.start, group.esp.end, group.esp.smooth_alpha);
+  if (alpha_scale <= 0.0f) {
     return;
   }
-  const auto smoothed_screen = smooth_esp_point(entity, ImVec2(screen.x, screen.y), esp_smoothing_point::origin);
-  screen.x = smoothed_screen.x;
-  screen.y = smoothed_screen.y;
 
   auto bounds = esp_bounds{
-    .min_x = screen.x - 5.0f,
-    .min_y = screen.y - 5.0f,
-    .max_x = screen.x + 5.0f,
-    .max_y = screen.y + 5.0f
+    .min_x = 0.0f,
+    .min_y = 0.0f,
+    .max_x = 0.0f,
+    .max_y = 0.0f
   };
-  auto entity_bounds = esp_bounds{};
-  if (get_stable_entity_screen_bounds(entity, &entity_bounds)) {
-    bounds = smooth_esp_bounds(entity, entity_bounds);
-  }
-
-  if (config.esp.pickup.box) {
-    draw_esp_box(draw_list, entity, bounds, config.esp.pickup.box_style, IM_COL32(255, 255, 255, 255), 1.0f);
-  }
-
-  if (!config.esp.pickup.name) {
-    return;
-  }
-
-  std::string label{};
-  auto text_color = IM_COL32(255, 255, 255, 255);
-  if (entity->get_pickup_type() == pickup_type::AMMOPACK) {
-    label = "AMMO";
-  } else if (entity->get_pickup_type() == pickup_type::MEDKIT) {
-    label = "HEALTH";
-    text_color = IM_COL32(0, 255, 25, 255);
-  }
-
-  draw_text_centered(draw_list, ImVec2(screen.x, screen.y + 8.0f), text_color, label);
-}
-
-void draw_flag_esp(ImDrawList* draw_list, Entity* entity, Player* localplayer)
-{
-  if (draw_list == nullptr || entity == nullptr || localplayer == nullptr) {
-    return;
-  }
-  if (entity->is_dormant()) {
-    return;
-  }
-  if (entity->get_class_id() != class_id::CAPTURE_FLAG || entity->get_owner_entity() == localplayer) {
-    return;
-  }
-
-  auto bounds = esp_bounds{};
+  auto text_position = ImVec2{};
   if (!get_stable_entity_screen_bounds(entity, &bounds)) {
-    return;
+    auto screen = Vec3{};
+    if (!overlay_projection::world_to_screen(get_esp_draw_origin(entity), &screen)) {
+      return;
+    }
+    const auto smoothed_screen = smooth_esp_point(entity, ImVec2(screen.x, screen.y), esp_smoothing_point::origin);
+    bounds = esp_bounds{
+      .min_x = smoothed_screen.x - 5.0f,
+      .min_y = smoothed_screen.y - 5.0f,
+      .max_x = smoothed_screen.x + 5.0f,
+      .max_y = smoothed_screen.y + 5.0f
+    };
+    text_position = ImVec2(smoothed_screen.x, smoothed_screen.y + 8.0f);
+  } else {
+    bounds = smooth_esp_bounds(entity, bounds);
+    text_position = ImVec2((bounds.min_x + bounds.max_x) * 0.5f, bounds.max_y + 2.0f);
   }
-  bounds = smooth_esp_bounds(entity, bounds);
 
-  auto color = RGBA{255, 255, 255, 255};
-  if (entity->get_team() == tf_team::BLU) {
-    color = RGBA{0, 0, 255, 255};
-  }
-  if (entity->get_team() == tf_team::RED) {
-    color = RGBA{255, 0, 0, 255};
+  auto color = visual_groups::color_for_entity(entity, group);
+  color.a *= alpha_scale;
+  const auto imgui_color = to_imgui_color(color.to_RGBA());
+
+  if ((group.esp.draw_mask & group_esp_settings::box) != 0) {
+    draw_esp_box(draw_list, entity, bounds, group.esp.box_style, imgui_color, alpha_scale);
   }
 
-  if (config.esp.intelligence.box) {
-    draw_esp_box(draw_list, entity, bounds, config.esp.intelligence.box_style, to_imgui_color(color), 1.0f);
+  if ((group.esp.draw_mask & group_esp_settings::health_bar) != 0 && entity->is_building()) {
+    auto* building = reinterpret_cast<Building*>(entity);
+    draw_vertical_health_bar(draw_list, bounds, building->get_health(), building->get_max_health(), alpha_scale);
   }
-  if (config.esp.intelligence.name) {
-    draw_text_centered(draw_list, ImVec2((bounds.min_x + bounds.max_x) * 0.5f, bounds.max_y + 2.0f), to_imgui_color(color), "FLAG");
+
+  if ((group.esp.draw_mask & group_esp_settings::name) != 0) {
+    draw_text_centered(draw_list, text_position, imgui_color, visual_groups::label_for_entity(entity));
+  }
+
+  if ((group.esp.draw_mask & group_esp_settings::distance) != 0 && entity_list != nullptr) {
+    auto* localplayer = entity_list->get_localplayer();
+    if (localplayer != nullptr) {
+      const Vec3 delta = entity->get_collision_origin() - localplayer->get_collision_origin();
+      const int distance = static_cast<int>(std::sqrt((delta.x * delta.x) + (delta.y * delta.y) + (delta.z * delta.z)));
+      draw_text_centered(draw_list, ImVec2(text_position.x, text_position.y + ImGui::GetTextLineHeight()), imgui_color, std::to_string(distance));
+    }
   }
 }
 
@@ -1729,7 +1660,7 @@ void reset_esp_runtime_state()
 
 void update_player_head_emoji_cache()
 {
-  if (!config.esp.master || !config.esp.player.head_emoji || engine == nullptr || entity_list == nullptr || global_vars == nullptr ||
+  if (!visual_groups::groups_active() || engine == nullptr || entity_list == nullptr || global_vars == nullptr ||
       !engine->is_in_game()) {
     reset_head_emoji_runtime_state();
     return;
@@ -1752,7 +1683,11 @@ void update_player_head_emoji_cache()
     if (!should_draw_player(player, localplayer) && !should_draw_teammate_head_emoji(player, localplayer)) {
       continue;
     }
-    if (!should_draw_player_overlay_icon(player, localplayer, config.esp.player.head_emoji_teammates)) {
+    const auto* group = player != nullptr ? visual_groups::group_for_entity(player->to_entity(), false) : nullptr;
+    if (group == nullptr || (group->esp.draw_mask & group_esp_settings::head_emoji) == 0) {
+      continue;
+    }
+    if (!should_draw_player_overlay_icon(player, localplayer, (group->conditions & visual_group::condition_team) != 0)) {
       continue;
     }
 
@@ -1780,7 +1715,7 @@ void refresh_player_head_emoji_cache_for_draw()
 
 void draw_players_imgui()
 {
-  if (!config.esp.master || engine == nullptr || !engine->is_in_game() || render_view == nullptr || entity_list == nullptr) {
+  if (!visual_groups::groups_active() || engine == nullptr || !engine->is_in_game() || render_view == nullptr || entity_list == nullptr) {
     reset_esp_runtime_state();
     return;
   }
@@ -1811,41 +1746,32 @@ void draw_players_imgui()
 
   begin_esp_smoothing_frame();
 
-  if (config.esp.player.head_emoji) {
-    refresh_player_head_emoji_cache_for_draw();
-  }
+  refresh_player_head_emoji_cache_for_draw();
 
   auto* player_resource = get_player_resource_entity();
 
   for (unsigned int index = 1; index <= entity_list->get_max_entities(); ++index) {
-    auto* player = entity_list->player_from_index(index);
-    if (player == nullptr) {
+    auto* entity = entity_list->entity_from_index(index);
+    if (entity == nullptr) {
       continue;
     }
 
-    if (player->get_class_id() == class_id::PLAYER) {
+    const auto* group = visual_groups::group_for_entity(entity, false);
+    if (group == nullptr) {
+      continue;
+    }
+
+    if (entity->get_class_id() == class_id::PLAYER) {
+      auto* player = reinterpret_cast<Player*>(entity);
       if (should_draw_player(player, localplayer)) {
-        draw_player_esp(draw_list, player, localplayer, player_resource);
+        draw_player_esp(draw_list, player, localplayer, player_resource, *group);
       } else if (should_draw_teammate_head_emoji(player, localplayer)) {
         draw_player_head_emoji_only(draw_list, player, localplayer);
       }
       continue;
     }
 
-    auto* entity = player->to_entity();
-    if (entity == nullptr) {
-      continue;
-    }
-
-    if (entity->get_pickup_type() != pickup_type::UNKNOWN) {
-      draw_pickup_esp(draw_list, entity, localplayer);
-    }
-
-    draw_flag_esp(draw_list, entity, localplayer);
-
-    if (should_draw_building(entity, localplayer)) {
-      draw_building_esp(draw_list, entity, localplayer);
-    }
+    draw_group_entity_esp(draw_list, entity, *group);
   }
 
   draw_pickup_timers(draw_list);
@@ -1870,7 +1796,7 @@ void draw_backtrack_visualizer_imgui()
   }
 
   const int max_draw_ticks = std::clamp(config.backtrack.visualizer_ticks, 1, backtrack::max_records);
-  const auto base_color = config.esp.player.enemy_color.to_RGBA();
+  RGBA base_color{255, 128, 0, 255};
   for (unsigned int index = 1; index <= entity_list->get_max_entities(); ++index) {
     auto* player = entity_list->player_from_index(index);
     if (player == nullptr || player == localplayer || player->is_friend() || player->is_ignored()) {

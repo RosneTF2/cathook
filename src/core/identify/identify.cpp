@@ -29,7 +29,7 @@ namespace
 {
 
 constexpr const char* server_host      = "identify.cathook.org";
-constexpr int         server_port      = 6767;
+constexpr int         server_port      = 3000;
 constexpr int         betrayal_limit   = 2;
 constexpr int         tick_interval_ms = 1000;
 

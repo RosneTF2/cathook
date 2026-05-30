@@ -11,12 +11,9 @@ V  o o  V  file: src/features/visuals/chams/chams.cpp
 
 #include "chams.hpp"
 
-#include "renderables/chams_player.cpp"
-#include "renderables/chams_wearable.cpp"
-
 #include "core/assert.hpp"
 
-#include "features/menu/config.hpp"
+#include "features/visuals/groups/visual_groups.hpp"
 
 #include "games/tf2/sdk/interfaces/entity_list.hpp"
 #include "games/tf2/sdk/interfaces/material_system.hpp"
@@ -25,13 +22,10 @@ V  o o  V  file: src/features/visuals/chams/chams.cpp
 #include "games/tf2/sdk/entities/player.hpp"
 
 void chams(Entity* entity, void* me, void* state, ModelRenderInfo* pinfo, VMatrix* bone_to_world) {
-  if (config.chams.master == false) DME_RETURN;
-
-  Player* localplayer = entity_list->get_localplayer();
-  if (localplayer == nullptr) {
+  const auto* group = visual_groups::group_for_entity(entity, true);
+  if (group == nullptr) {
     DME_RETURN;
   }
-
 
   if (materials.empty()) {
     initialize_materials();
@@ -40,14 +34,13 @@ void chams(Entity* entity, void* me, void* state, ModelRenderInfo* pinfo, VMatri
   // If we're still empty, something has gone very wrong.
   error_assert(materials.empty(), "Materials list is still empty even after initialization!");
 
-    
-  class_id id = entity->get_class_id();
-  if (id == class_id::PLAYER) {
-    chams_player((Player*)entity, me, state, pinfo, bone_to_world);
-  } else if (entity->is_wearable() || (entity->is_base_combat_weapon() && entity->get_owner_entity() != nullptr && !entity->get_pickup_type())) {
-    chams_wearable(entity, me, state, pinfo, bone_to_world); // Attachments on the player model like the gun and hats
-  } else {
+  auto settings = get_chams_settings(*group);
+  settings.color = visual_groups::color_for_entity(entity, *group);
+  settings.color_z = settings.color;
+  if (settings.material == nullptr && settings.material_z == nullptr) {
     draw_model_execute_original(me, state, pinfo, bone_to_world);
+  } else {
+    apply_chams_settings(me, state, pinfo, bone_to_world, settings);
   }
 
   model_render->forced_material_override(nullptr, OVERRIDE_NORMAL);

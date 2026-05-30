@@ -20,6 +20,7 @@ V  o o  V  file: src/features/menu/menu.hpp
 #include "core/ipc/ipc_client.hpp"
 #include "core/logger.hpp"
 #include "features/automation/region_selector/region_selector.hpp"
+#include "features/visuals/groups/visual_groups.hpp"
 #include "imgui/dearimgui.hpp"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
@@ -27,6 +28,7 @@ V  o o  V  file: src/features/menu/menu.hpp
 #include "core/render/bytes.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <SDL2/SDL_mouse.h>
@@ -1479,150 +1481,234 @@ static void draw_combat_tab() {
   draw_aimbot_content();
 }
 
-static void draw_esp_content() {
-  const char* mafia_position_items[] = { "Under name", "Left", "Right" };
-  const char* box_type_items[] = { "Outline", "Corner", "Filled", "Rounded", "Projected" };
-  const char* head_emoji_items[] = { "Emoji 1", "Emoji 2" };
-
-  cat_menu::begin_flow_layout("esp_layout", 3);
-  cat_menu::flow_panel("ESP", 0, 126.0f, [&]() {
-    cat_menu::checkbox("Enable player ESP", &config.esp.master);
-    cat_menu::checkbox("Lerp ESP", &config.esp.lerp);
-    cat_menu::slider_float("Lerp speed", &config.esp.lerp_speed, 1.0f, 40.0f, "%.1f");
-  });
-  cat_menu::flow_panel("Targets", 0, 196.0f, [&]() {
-    cat_menu::checkbox("Enemy", &config.esp.player.enemy);
-    cat_menu::checkbox("Team", &config.esp.player.team);
-    cat_menu::checkbox("Friends", &config.esp.player.friends);
-    cat_menu::checkbox("Pickup box", &config.esp.pickup.box);
-    cat_menu::combo("Pickup box type", (int*)&config.esp.pickup.box_style, box_type_items, IM_ARRAYSIZE(box_type_items));
-    cat_menu::checkbox("Pickup name", &config.esp.pickup.name);
-    cat_menu::checkbox("Intel box", &config.esp.intelligence.box);
-    cat_menu::combo("Intel box type", (int*)&config.esp.intelligence.box_style, box_type_items, IM_ARRAYSIZE(box_type_items));
-    cat_menu::checkbox("Intel name", &config.esp.intelligence.name);
-  });
-  cat_menu::flow_panel("ESP settings", 1, 288.0f, [&]() {
-    cat_menu::checkbox("Box", &config.esp.player.box);
-    cat_menu::combo("Box type", (int*)&config.esp.player.box_style, box_type_items, IM_ARRAYSIZE(box_type_items));
-    cat_menu::checkbox("Health bar", &config.esp.player.health_bar);
-    cat_menu::checkbox("Name", &config.esp.player.name);
-    cat_menu::checkbox("Class icon", &config.esp.player.class_icon);
-    cat_menu::checkbox("Class icon team", &config.esp.player.class_icon_teammates);
-    ImGui::SliderFloat("CI scale", &config.esp.player.class_icon_scale, 0.5f, 5.0f, "%.1f");
-    cat_menu::checkbox("Head emoji", &config.esp.player.head_emoji);
-    cat_menu::combo("Emoji style", &config.esp.player.head_emoji_style, head_emoji_items, IM_ARRAYSIZE(head_emoji_items));
-    cat_menu::checkbox("Emoji teammates", &config.esp.player.head_emoji_teammates);
-    ImGui::SliderFloat("Emoji scale", &config.esp.player.head_emoji_scale, 0.5f, 5.0f, "%.1f");
-    cat_menu::checkbox("Mafia level", &config.esp.player.mafia_level);
-    cat_menu::combo("Mafia position", (int*)&config.esp.player.mafia_level_position, mafia_position_items, IM_ARRAYSIZE(mafia_position_items));
-    cat_menu::checkbox("Target flag", &config.esp.player.flags.target_indicator);
-    cat_menu::checkbox("Friend flag", &config.esp.player.flags.friend_indicator);
-    cat_menu::checkbox("Scoped flag", &config.esp.player.flags.scoped_indicator);
-  });
-  cat_menu::flow_panel("Strings", 2, 188.0f, [&]() {
-    cat_menu::checkbox("Box", &config.esp.buildings.box);
-    cat_menu::combo("Box type", (int*)&config.esp.buildings.box_style, box_type_items, IM_ARRAYSIZE(box_type_items));
-    cat_menu::checkbox("Health bar", &config.esp.buildings.health_bar);
-    cat_menu::checkbox("Name", &config.esp.buildings.name);
-    cat_menu::checkbox("Team", &config.esp.buildings.team);
-  });
-  cat_menu::flow_panel("Colors", 2, 126.0f, [&]() {
-    cat_menu::color_picker("Enemy color", config.esp.player.enemy_color.to_arr());
-    cat_menu::color_picker("Team color", config.esp.player.team_color.to_arr());
-    cat_menu::color_picker("Friend color", config.esp.player.friend_color.to_arr());
-  });
-  cat_menu::end_flow_layout();
+static uint32_t group_active_bit(const int index) {
+  return index >= 0 && index < static_cast<int>(visual_group_config::max_groups) ? (1u << index) : 0u;
 }
 
-static void draw_chams_content() {
-  const char* mats[] = {
-    "None",
-    "Flat",
-    "Flat wireframe",
-    "Shaded",
-    "Shaded wireframe",
-    "Fresnel",
-    "Fresnel wireframe",
-    "Glossy",
-    "Glossy wireframe",
-    "Additive",
-    "Additive wireframe"
+static void delete_visual_group(const int selected_index, int* selected_group) {
+  if (selected_index < 0 || selected_group == nullptr || selected_index >= static_cast<int>(config.visual_groups.groups.size())) return;
+
+  uint32_t new_mask = 0;
+  for (int index = 0; index < static_cast<int>(config.visual_groups.groups.size()); ++index) {
+    if (index == selected_index || (config.visual_groups.active_group_mask & group_active_bit(index)) == 0) continue;
+    const int new_index = index < selected_index ? index : index - 1;
+    new_mask |= group_active_bit(new_index);
+  }
+
+  config.visual_groups.groups.erase(config.visual_groups.groups.begin() + selected_index);
+  config.visual_groups.active_group_mask = new_mask;
+  if (config.visual_groups.groups.empty()) {
+    *selected_group = 0;
+  } else {
+    *selected_group = std::clamp(selected_index, 0, static_cast<int>(config.visual_groups.groups.size()) - 1);
+  }
+}
+
+static void draw_visual_groups_content() {
+  visual_groups::ensure_defaults();
+
+  static int selected_group = 0;
+  static std::string new_group_name = "New group";
+
+  const char* target_items[] = {
+    "Players", "Buildings", "Projectiles", "Ragdolls", "Objective", "NPCs", "Health", "Ammo",
+    "Money", "Powerups", "Spellbook", "Bombs", "Gargoyle", "Fake angle", "Viewmodel weapon", "Viewmodel hands"
   };
+  const uint32_t target_bits[] = {
+    visual_group::target_players, visual_group::target_buildings, visual_group::target_projectiles, visual_group::target_ragdolls,
+    visual_group::target_objective, visual_group::target_npcs, visual_group::target_health, visual_group::target_ammo,
+    visual_group::target_money, visual_group::target_powerups, visual_group::target_spellbook, visual_group::target_bombs,
+    visual_group::target_gargoyle, visual_group::target_fake_angle, visual_group::target_viewmodel_weapon, visual_group::target_viewmodel_hands
+  };
+  const char* condition_items[] = { "Enemy", "Team", "BLU", "RED", "Local", "Friends", "Party", "Priority", "Target", "Dormant", "CAT", "Ignored" };
+  const uint32_t condition_bits[] = {
+    visual_group::condition_enemy, visual_group::condition_team, visual_group::condition_blu, visual_group::condition_red,
+    visual_group::condition_local, visual_group::condition_friends, visual_group::condition_party, visual_group::condition_priority,
+    visual_group::condition_target, visual_group::condition_dormant, visual_group::condition_cat, visual_group::condition_ignored
+  };
+  const char* player_items[] = {
+    "Scout", "Soldier", "Pyro", "Demoman", "Heavy", "Engineer", "Medic", "Sniper", "Spy",
+    "Invulnerable", "Crits", "Invisible", "Disguise", "Hurt", "Not invisible"
+  };
+  const uint32_t player_bits[] = {
+    visual_group::player_scout, visual_group::player_soldier, visual_group::player_pyro, visual_group::player_demoman,
+    visual_group::player_heavy, visual_group::player_engineer, visual_group::player_medic, visual_group::player_sniper,
+    visual_group::player_spy, visual_group::player_invulnerable, visual_group::player_crits, visual_group::player_invisible,
+    visual_group::player_disguise, visual_group::player_hurt, visual_group::player_not_invisible
+  };
+  const char* building_items[] = { "Sentry", "Dispenser", "Teleporter", "Hurt" };
+  const uint32_t building_bits[] = {
+    visual_group::building_sentry, visual_group::building_dispenser, visual_group::building_teleporter, visual_group::building_hurt
+  };
+  const char* projectile_items[] = {
+    "Rocket", "Sticky", "Pipe", "Arrow", "Heal", "Flare", "Fire", "Repair", "Cleaver", "Milk", "Jarate", "Gas",
+    "Bauble", "Baseball", "Energy", "Short circuit", "Meteor", "Lightning", "Fireball", "Bomb", "Bats", "Pumpkin",
+    "Monoculus", "Skeleton", "Misc", "Crit", "Mini-crit"
+  };
+  const uint32_t projectile_bits[] = {
+    visual_group::projectile_rocket, visual_group::projectile_sticky, visual_group::projectile_pipe, visual_group::projectile_arrow,
+    visual_group::projectile_heal, visual_group::projectile_flare, visual_group::projectile_fire, visual_group::projectile_repair,
+    visual_group::projectile_cleaver, visual_group::projectile_milk, visual_group::projectile_jarate, visual_group::projectile_gas,
+    visual_group::projectile_bauble, visual_group::projectile_baseball, visual_group::projectile_energy, visual_group::projectile_short_circuit,
+    visual_group::projectile_meteor_shower, visual_group::projectile_lightning, visual_group::projectile_fireball, visual_group::projectile_bomb,
+    visual_group::projectile_bats, visual_group::projectile_pumpkin, visual_group::projectile_monoculus, visual_group::projectile_skeleton,
+    visual_group::projectile_misc, visual_group::projectile_crit, visual_group::projectile_minicrit
+  };
+  const char* esp_items[] = {
+    "Name", "Name bg", "Box", "Distance", "Bones", "Health bar", "Health text", "Class icon", "Class text", "Weapon",
+    "Priority", "Flags", "Ping", "KDR", "Mafia level", "Owner", "Level", "Ammo", "Intel timer", "Head emoji"
+  };
+  const uint32_t esp_bits[] = {
+    group_esp_settings::name, group_esp_settings::name_background, group_esp_settings::box, group_esp_settings::distance,
+    group_esp_settings::bones, group_esp_settings::health_bar, group_esp_settings::health_text, group_esp_settings::class_icon,
+    group_esp_settings::class_text, group_esp_settings::weapon_text, group_esp_settings::priority, group_esp_settings::flags,
+    group_esp_settings::ping, group_esp_settings::kdr, group_esp_settings::mafia_level, group_esp_settings::owner,
+    group_esp_settings::level, group_esp_settings::ammo_text, group_esp_settings::intel_return_time, group_esp_settings::head_emoji
+  };
+  const char* box_type_items[] = { "Outline", "Corner", "Filled", "Rounded", "Projected" };
+  const char* material_items[] = {
+    "None", "Flat", "Flat wireframe", "Shaded", "Shaded wireframe", "Fresnel",
+    "Fresnel wireframe", "Glossy", "Glossy wireframe", "Additive", "Additive wireframe"
+  };
+  const char* mafia_position_items[] = { "Under name", "Left", "Right" };
+  const char* head_emoji_items[] = { "Emoji 1", "Emoji 2" };
+  const char* backtrack_items[] = { "Enabled", "Ignore z", "Last", "First", "Always" };
+  const uint32_t backtrack_bits[] = {
+    visual_group::backtrack_enabled, visual_group::backtrack_ignore_z, visual_group::backtrack_last,
+    visual_group::backtrack_first, visual_group::backtrack_always
+  };
+  const char* trajectory_items[] = { "Enabled", "Ignore z", "Predict", "Radius", "Trace", "Sphere", "Path" };
+  const uint32_t trajectory_bits[] = {
+    visual_group::trajectory_enabled, visual_group::trajectory_ignore_z, visual_group::trajectory_predict,
+    visual_group::trajectory_radius, visual_group::trajectory_trace, visual_group::trajectory_sphere, visual_group::trajectory_path
+  };
+  const char* sightline_items[] = { "Enabled", "Ignore z" };
+  const uint32_t sightline_bits[] = { visual_group::sightline_enabled, visual_group::sightline_ignore_z };
 
-  cat_menu::begin_flow_layout("chams_layout", 3);
-  cat_menu::flow_panel("Chams", 0, 388.0f, [&]() {
-    cat_menu::checkbox("Enable chams", &config.chams.master);
-    cat_menu::checkbox("Enemy", &config.chams.player.enemy);
-    cat_menu::checkbox("Team", &config.chams.player.team);
-    cat_menu::checkbox("Friends", &config.chams.player.friends);
-    cat_menu::checkbox("Local", &config.chams.player.local);
-    cat_menu::combo("Enemy material", (int*)&config.chams.player.enemy_material_type, mats, IM_ARRAYSIZE(mats));
-    cat_menu::combo("Enemy z material", (int*)&config.chams.player.enemy_material_z_type, mats, IM_ARRAYSIZE(mats));
-    cat_menu::combo("Team material", (int*)&config.chams.player.team_material_type, mats, IM_ARRAYSIZE(mats));
-    cat_menu::combo("Team z material", (int*)&config.chams.player.team_material_z_type, mats, IM_ARRAYSIZE(mats));
-    cat_menu::combo("Friend material", (int*)&config.chams.player.friend_material_type, mats, IM_ARRAYSIZE(mats));
-    cat_menu::combo("Friend z material", (int*)&config.chams.player.friend_material_z_type, mats, IM_ARRAYSIZE(mats));
-    cat_menu::combo("Local material", (int*)&config.chams.player.local_material_type, mats, IM_ARRAYSIZE(mats));
-    cat_menu::checkbox("Enemy ignore z", &config.chams.player.enemy_flags.ignore_z);
-    cat_menu::checkbox("Team ignore z", &config.chams.player.team_flags.ignore_z);
-  });
-  cat_menu::flow_panel("Targets", 1, 244.0f, [&]() {
-    cat_menu::checkbox("Friend ignore z", &config.chams.player.friends_flags.ignore_z);
-    cat_menu::checkbox("Enemy overlay ignore z", &config.chams.player.enemy_overlay_flags.ignore_z);
-    cat_menu::checkbox("Backtrack", &config.chams.player.backtrack);
-    cat_menu::combo("Backtrack material", (int*)&config.chams.player.backtrack_material_type, mats, IM_ARRAYSIZE(mats));
-    cat_menu::combo("Backtrack z material", (int*)&config.chams.player.backtrack_material_z_type, mats, IM_ARRAYSIZE(mats));
-    cat_menu::checkbox("Backtrack ignore z", &config.chams.player.backtrack_flags.ignore_z);
-    cat_menu::slider_int("Backtrack ticks", &config.chams.player.backtrack_ticks, 1, 80);
-  });
-  cat_menu::flow_panel("Colors", 2, 160.0f, [&]() {
-    cat_menu::color_picker("Enemy visible", config.chams.player.enemy_color.to_arr());
-    cat_menu::color_picker("Enemy occluded", config.chams.player.enemy_color_z.to_arr());
-    cat_menu::color_picker("Team visible", config.chams.player.team_color.to_arr());
-    cat_menu::color_picker("Team occluded", config.chams.player.team_color_z.to_arr());
-  });
-  cat_menu::flow_panel("Colors (NoVis)", 2, 188.0f, [&]() {
-    cat_menu::color_picker("Friend visible", config.chams.player.friend_color.to_arr());
-    cat_menu::color_picker("Friend occluded", config.chams.player.friend_color_z.to_arr());
-    cat_menu::color_picker("Local color", config.chams.player.local_color.to_arr());
-    cat_menu::combo("Enemy overlay mat", (int*)&config.chams.player.enemy_overlay_material_type, mats, IM_ARRAYSIZE(mats));
-    cat_menu::combo("Enemy overlay z mat", (int*)&config.chams.player.enemy_overlay_material_z_type, mats, IM_ARRAYSIZE(mats));
-    cat_menu::color_picker("Enemy overlay", config.chams.player.enemy_overlay_color.to_arr());
-    cat_menu::color_picker("Enemy overlay z", config.chams.player.enemy_overlay_color_z.to_arr());
-    cat_menu::color_picker("Backtrack visible", config.chams.player.backtrack_color.to_arr());
-    cat_menu::color_picker("Backtrack occluded", config.chams.player.backtrack_color_z.to_arr());
-  });
-  cat_menu::end_flow_layout();
-}
+  if (selected_group >= static_cast<int>(config.visual_groups.groups.size())) {
+    selected_group = std::max(0, static_cast<int>(config.visual_groups.groups.size()) - 1);
+  }
 
-static void draw_glow_content() {
-  cat_menu::begin_flow_layout("glow_layout", 3);
-  cat_menu::flow_panel("Glow", 0, 170.0f, [&]() {
-    cat_menu::checkbox("Enable player glow", &config.glow.master);
-    cat_menu::checkbox("Enemy", &config.glow.player.enemy);
-    cat_menu::checkbox("Team", &config.glow.player.team);
-    cat_menu::checkbox("Friends", &config.glow.player.friends);
-    cat_menu::checkbox("Local", &config.glow.player.local);
-  });
-  cat_menu::flow_panel("Style", 1, 188.0f, [&]() {
-    cat_menu::slider_int("Outline size", &config.glow.outline_scale, 0, 10);
-    cat_menu::slider_float("Blur strength", &config.glow.blur_scale, 0.0f, 10.0f, "%.1f");
-    cat_menu::slider_float("Fade near", &config.glow.start, 0.0f, 2048.0f, "%.0f HU");
-    cat_menu::slider_float("Fade far", &config.glow.end, 512.0f, 8192.0f, "%.0f HU");
-    if (config.glow.end < config.glow.start) {
-      config.glow.end = config.glow.start;
+  std::array<const char*, visual_group_config::max_groups> active_names{};
+  std::array<uint32_t, visual_group_config::max_groups> active_bits{};
+  const int active_count = static_cast<int>(std::min(config.visual_groups.groups.size(), visual_group_config::max_groups));
+  for (int index = 0; index < active_count; ++index) {
+    active_names[static_cast<std::size_t>(index)] = config.visual_groups.groups[static_cast<std::size_t>(index)].name.c_str();
+    active_bits[static_cast<std::size_t>(index)] = group_active_bit(index);
+  }
+
+  cat_menu::begin_flow_layout("visual_groups_layout", 3);
+  cat_menu::flow_panel("Groups", 0, 380.0f, [&]() {
+    cat_menu::input_text("New group", &new_group_name);
+    if (cat_menu::accent_button("Create", ImVec2((ImGui::GetContentRegionAvail().x - 6.0f) * 0.5f, 22.0f)) &&
+        config.visual_groups.groups.size() < visual_group_config::max_groups) {
+      visual_group group{};
+      group.name = new_group_name.empty() ? "New group" : new_group_name;
+      group.targets = visual_group::target_players;
+      config.visual_groups.groups.emplace_back(group);
+      selected_group = static_cast<int>(config.visual_groups.groups.size()) - 1;
+      config.visual_groups.active_group_mask |= group_active_bit(selected_group);
     }
-    cat_menu::checkbox("Distance fade", &config.glow.smooth_alpha);
-    cat_menu::checkbox("Filled body", &config.glow.filled_body);
+    ImGui::SameLine(0.0f, 6.0f);
+    if (cat_menu::accent_button("Duplicate", ImVec2(0.0f, 22.0f)) &&
+        selected_group >= 0 && selected_group < static_cast<int>(config.visual_groups.groups.size()) &&
+        config.visual_groups.groups.size() < visual_group_config::max_groups) {
+      visual_group group = config.visual_groups.groups[static_cast<std::size_t>(selected_group)];
+      group.name += " copy";
+      config.visual_groups.groups.emplace_back(group);
+      selected_group = static_cast<int>(config.visual_groups.groups.size()) - 1;
+      config.visual_groups.active_group_mask |= group_active_bit(selected_group);
+    }
+    if (cat_menu::accent_button("Delete", ImVec2((ImGui::GetContentRegionAvail().x - 6.0f) * 0.5f, 22.0f), true)) {
+      delete_visual_group(selected_group, &selected_group);
+    }
+    ImGui::SameLine(0.0f, 6.0f);
+    if (cat_menu::accent_button("Up", ImVec2((ImGui::GetContentRegionAvail().x - 6.0f) * 0.5f, 22.0f)) && selected_group > 0) {
+      visual_groups::move_group(selected_group, selected_group - 1);
+      --selected_group;
+    }
+    ImGui::SameLine(0.0f, 6.0f);
+    if (cat_menu::accent_button("Down", ImVec2(0.0f, 22.0f)) && selected_group + 1 < static_cast<int>(config.visual_groups.groups.size())) {
+      visual_groups::move_group(selected_group, selected_group + 1);
+      ++selected_group;
+    }
+    if (active_count > 0) {
+      cat_menu::multi_select_combo("Active", &config.visual_groups.active_group_mask, active_names.data(), active_bits.data(), active_count);
+    }
+    const float list_height = std::max(72.0f, ImGui::GetContentRegionAvail().y);
+    ImGui::BeginChild("##visual_group_list", ImVec2(0.0f, list_height), true);
+    for (int index = 0; index < static_cast<int>(config.visual_groups.groups.size()); ++index) {
+      ImGui::PushID(index);
+      const bool active = (config.visual_groups.active_group_mask & group_active_bit(index)) != 0;
+      std::string label = active ? "* " : "  ";
+      label += config.visual_groups.groups[static_cast<std::size_t>(index)].name;
+      if (ImGui::Selectable(label.c_str(), selected_group == index)) {
+        selected_group = index;
+      }
+      ImGui::PopID();
+    }
+    ImGui::EndChild();
   });
-  cat_menu::flow_panel("Colors", 2, 244.0f, [&]() {
-    cat_menu::color_picker("Enemy visible", config.glow.player.enemy_color.to_arr());
-    cat_menu::color_picker("Enemy not visible", config.glow.player.enemy_color_z.to_arr());
-    cat_menu::color_picker("Team visible", config.glow.player.team_color.to_arr());
-    cat_menu::color_picker("Team not visible", config.glow.player.team_color_z.to_arr());
-    cat_menu::color_picker("Friend visible", config.glow.player.friend_color.to_arr());
-    cat_menu::color_picker("Friend not visible", config.glow.player.friend_color_z.to_arr());
-    cat_menu::color_picker("Local color", config.glow.player.local_color.to_arr());
+
+  if (config.visual_groups.groups.empty()) {
+    cat_menu::end_flow_layout();
+    return;
+  }
+
+  visual_group& group = config.visual_groups.groups[static_cast<std::size_t>(selected_group)];
+
+  cat_menu::flow_panel("Color", 0, 142.0f, [&]() {
+    cat_menu::input_text("Name", &group.name);
+    cat_menu::color_picker("Color", group.color.to_arr());
+    cat_menu::checkbox("Tags override color", &group.tags_override_color);
+  });
+  cat_menu::flow_panel("Targets", 1, 258.0f, [&]() {
+    cat_menu::multi_select_combo("Entity types", &group.targets, target_items, target_bits, IM_ARRAYSIZE(target_items));
+    cat_menu::multi_select_combo("Conditions", &group.conditions, condition_items, condition_bits, IM_ARRAYSIZE(condition_items));
+    cat_menu::multi_select_combo("Players", &group.players, player_items, player_bits, IM_ARRAYSIZE(player_items));
+    cat_menu::multi_select_combo("Buildings", &group.buildings, building_items, building_bits, IM_ARRAYSIZE(building_items));
+    cat_menu::multi_select_combo("Projectiles", &group.projectiles, projectile_items, projectile_bits, IM_ARRAYSIZE(projectile_items));
+  });
+  cat_menu::flow_panel("ESP", 1, 334.0f, [&]() {
+    cat_menu::multi_select_combo("Draw", &group.esp.draw_mask, esp_items, esp_bits, IM_ARRAYSIZE(esp_items));
+    cat_menu::combo("Box type", (int*)&group.esp.box_style, box_type_items, IM_ARRAYSIZE(box_type_items));
+    cat_menu::slider_float("Fade near", &group.esp.start, 0.0f, 2048.0f, "%.0f HU");
+    cat_menu::slider_float("Fade far", &group.esp.end, 512.0f, 8192.0f, "%.0f HU");
+    if (group.esp.end < group.esp.start) group.esp.end = group.esp.start;
+    cat_menu::checkbox("Distance fade", &group.esp.smooth_alpha);
+    int background_alpha = group.esp.background_alpha;
+    cat_menu::slider_int("Background alpha", &background_alpha, 0, 255);
+    group.esp.background_alpha = static_cast<uint8_t>(std::clamp(background_alpha, 0, 255));
+    cat_menu::slider_float("Class icon scale", &group.esp.class_icon_scale, 0.5f, 5.0f, "%.1f");
+    cat_menu::slider_float("Emoji scale", &group.esp.head_emoji_scale, 0.5f, 5.0f, "%.1f");
+    cat_menu::combo("Emoji style", &group.esp.head_emoji_style, head_emoji_items, IM_ARRAYSIZE(head_emoji_items));
+    cat_menu::combo("Mafia position", (int*)&group.esp.mafia_level_position, mafia_position_items, IM_ARRAYSIZE(mafia_position_items));
+  });
+  cat_menu::flow_panel("Chams", 2, 116.0f, [&]() {
+    cat_menu::combo("Visible material", (int*)&group.chams.visible_material, material_items, IM_ARRAYSIZE(material_items));
+    cat_menu::combo("Occluded material", (int*)&group.chams.occluded_material, material_items, IM_ARRAYSIZE(material_items));
+    cat_menu::checkbox("Ignore z", &group.chams.ignore_z);
+  });
+  cat_menu::flow_panel("Glow", 2, 198.0f, [&]() {
+    cat_menu::slider_int("Outline size", &group.glow.outline_scale, 0, 10);
+    cat_menu::slider_float("Blur strength", &group.glow.blur_scale, 0.0f, 10.0f, "%.1f");
+    cat_menu::slider_float("Fade near", &group.glow.start, 0.0f, 2048.0f, "%.0f HU");
+    cat_menu::slider_float("Fade far", &group.glow.end, 512.0f, 8192.0f, "%.0f HU");
+    if (group.glow.end < group.glow.start) group.glow.end = group.glow.start;
+    cat_menu::checkbox("Distance fade", &group.glow.smooth_alpha);
+    cat_menu::checkbox("Filled body", &group.glow.filled_body);
+  });
+  cat_menu::flow_panel("Misc", 2, 258.0f, [&]() {
+    cat_menu::checkbox("Offscreen arrows", &group.offscreen_arrows);
+    cat_menu::slider_int("Arrow offset", &group.offscreen_arrows_offset, 0, 500);
+    cat_menu::slider_float("Arrow max distance", &group.offscreen_arrows_max_distance, 0.0f, 8192.0f, "%.0f HU");
+    cat_menu::checkbox("Pickup timer", &group.pickup_timer);
+    cat_menu::multi_select_combo("Backtrack", &group.backtrack, backtrack_items, backtrack_bits, IM_ARRAYSIZE(backtrack_items));
+    cat_menu::combo("Backtrack material", (int*)&group.backtrack_chams.visible_material, material_items, IM_ARRAYSIZE(material_items));
+    cat_menu::combo("Backtrack z material", (int*)&group.backtrack_chams.occluded_material, material_items, IM_ARRAYSIZE(material_items));
+    cat_menu::checkbox("Backtrack ignore z", &group.backtrack_chams.ignore_z);
+    cat_menu::multi_select_combo("Trajectory", &group.trajectory, trajectory_items, trajectory_bits, IM_ARRAYSIZE(trajectory_items));
+    cat_menu::multi_select_combo("Sightlines", &group.sightlines, sightline_items, sightline_bits, IM_ARRAYSIZE(sightline_items));
   });
   cat_menu::end_flow_layout();
 }
@@ -1687,26 +1773,16 @@ static void draw_visuals_ui_content() {
 static void draw_visuals_tab() {
   enum visuals_page_id
   {
-    visuals_page_esp,
-    visuals_page_chams,
-    visuals_page_glow,
+    visuals_page_groups,
     visuals_page_ui,
     visuals_page_world
   };
 
-  static int visuals_subtab = visuals_page_esp;
+  static int visuals_subtab = visuals_page_groups;
 
   cat_menu::begin_tab_strip("##visuals_subtabs", cat_menu::k_subtab_strip_height, false, true, cat_menu::k_tab_strip_padding_x, false);
-  if (cat_menu::subtab_button("ESP", visuals_subtab == visuals_page_esp)) {
-    visuals_subtab = visuals_page_esp;
-  }
-  ImGui::SameLine(0.0f, 0.0f);
-  if (cat_menu::subtab_button("Chams", visuals_subtab == visuals_page_chams)) {
-    visuals_subtab = visuals_page_chams;
-  }
-  ImGui::SameLine(0.0f, 0.0f);
-  if (cat_menu::subtab_button("Glow", visuals_subtab == visuals_page_glow)) {
-    visuals_subtab = visuals_page_glow;
+  if (cat_menu::subtab_button("Groups", visuals_subtab == visuals_page_groups)) {
+    visuals_subtab = visuals_page_groups;
   }
   ImGui::SameLine(0.0f, 0.0f);
   if (cat_menu::subtab_button("UI", visuals_subtab == visuals_page_ui)) {
@@ -1721,14 +1797,8 @@ static void draw_visuals_tab() {
   ImGui::Dummy(ImVec2(0.0f, 4.0f));
 
   switch (visuals_subtab) {
-    case visuals_page_esp:
-      draw_esp_content();
-      break;
-    case visuals_page_chams:
-      draw_chams_content();
-      break;
-    case visuals_page_glow:
-      draw_glow_content();
+    case visuals_page_groups:
+      draw_visual_groups_content();
       break;
     case visuals_page_ui:
       draw_visuals_ui_content();

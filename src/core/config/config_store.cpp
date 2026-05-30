@@ -14,6 +14,7 @@ V  o o  V  file: src/core/config/config_store.cpp
 #include "../logger.hpp"
 
 #include "features/automation/region_selector/region_selector.hpp"
+#include "features/visuals/groups/visual_groups.hpp"
 
 #include <algorithm>
 #include <array>
@@ -249,94 +250,58 @@ void config_store::import_config(const Config& config)
     set_bool("ipc.auto_connect", config.ipc.auto_connect);
     set_bool("ipc.auto_ignore_local_bots", config.ipc.auto_ignore_local_bots);
 #endif
-    set_bool("esp.master", config.esp.master);
-    set_bool("esp.lerp", config.esp.lerp);
-    set_float("esp.lerp_speed", config.esp.lerp_speed);
-    set_color("esp.player.enemy_color", config.esp.player.enemy_color);
-    set_color("esp.player.team_color", config.esp.player.team_color);
-    set_color("esp.player.friend_color", config.esp.player.friend_color);
-    set_bool("esp.player.box", config.esp.player.box);
-    set_int("esp.player.box_style", static_cast<int>(config.esp.player.box_style));
-    set_bool("esp.player.health_bar", config.esp.player.health_bar);
-    set_bool("esp.player.name", config.esp.player.name);
-    set_bool("esp.player.class_icon", config.esp.player.class_icon);
-    set_float("esp.player.class_icon_scale", config.esp.player.class_icon_scale);
-    set_bool("esp.player.class_icon_teammates", config.esp.player.class_icon_teammates);
-    set_bool("esp.player.head_emoji", config.esp.player.head_emoji);
-    set_float("esp.player.head_emoji_scale", config.esp.player.head_emoji_scale);
-    set_int("esp.player.head_emoji_style", config.esp.player.head_emoji_style);
-    set_bool("esp.player.head_emoji_teammates", config.esp.player.head_emoji_teammates);
-    set_bool("esp.player.flags.target_indicator", config.esp.player.flags.target_indicator);
-    set_bool("esp.player.flags.friend_indicator", config.esp.player.flags.friend_indicator);
-    set_bool("esp.player.flags.scoped_indicator", config.esp.player.flags.scoped_indicator);
-    set_bool("esp.player.enemy", config.esp.player.enemy);
-    set_bool("esp.player.team", config.esp.player.team);
-    set_bool("esp.player.friends", config.esp.player.friends);
-    set_bool("esp.pickup.box", config.esp.pickup.box);
-    set_int("esp.pickup.box_style", static_cast<int>(config.esp.pickup.box_style));
-    set_bool("esp.pickup.name", config.esp.pickup.name);
-    set_bool("esp.intelligence.box", config.esp.intelligence.box);
-    set_int("esp.intelligence.box_style", static_cast<int>(config.esp.intelligence.box_style));
-    set_bool("esp.intelligence.name", config.esp.intelligence.name);
-    set_bool("esp.buildings.box", config.esp.buildings.box);
-    set_int("esp.buildings.box_style", static_cast<int>(config.esp.buildings.box_style));
-    set_bool("esp.buildings.health_bar", config.esp.buildings.health_bar);
-    set_bool("esp.buildings.name", config.esp.buildings.name);
-    set_bool("esp.buildings.team", config.esp.buildings.team);
-
-    set_bool("glow.master", config.glow.master);
-    set_int("glow.outline_scale", config.glow.outline_scale);
-    set_float("glow.blur_scale", config.glow.blur_scale);
-    set_float("glow.start", config.glow.start);
-    set_float("glow.end", config.glow.end);
-    set_bool("glow.smooth_alpha", config.glow.smooth_alpha);
-    set_bool("glow.filled_body", config.glow.filled_body);
-    set_bool("glow.player.enemy", config.glow.player.enemy);
-    set_bool("glow.player.team", config.glow.player.team);
-    set_bool("glow.player.friends", config.glow.player.friends);
-    set_bool("glow.player.local", config.glow.player.local);
-    set_color("glow.player.enemy_color", config.glow.player.enemy_color);
-    set_color("glow.player.enemy_color_z", config.glow.player.enemy_color_z);
-    set_color("glow.player.team_color", config.glow.player.team_color);
-    set_color("glow.player.team_color_z", config.glow.player.team_color_z);
-    set_color("glow.player.friend_color", config.glow.player.friend_color);
-    set_color("glow.player.friend_color_z", config.glow.player.friend_color_z);
-    set_color("glow.player.local_color", config.glow.player.local_color);
-
-    set_bool("chams.master", config.chams.master);
-    set_bool("chams.player.enemy", config.chams.player.enemy);
-    set_color("chams.player.enemy_color", config.chams.player.enemy_color);
-    set_int("chams.player.enemy_material_type", static_cast<int>(config.chams.player.enemy_material_type));
-    set_color("chams.player.enemy_color_z", config.chams.player.enemy_color_z);
-    set_int("chams.player.enemy_material_z_type", static_cast<int>(config.chams.player.enemy_material_z_type));
-    set_bool("chams.player.enemy_flags.ignore_z", config.chams.player.enemy_flags.ignore_z);
-    set_color("chams.player.enemy_overlay_color", config.chams.player.enemy_overlay_color);
-    set_int("chams.player.enemy_overlay_material_type", static_cast<int>(config.chams.player.enemy_overlay_material_type));
-    set_color("chams.player.enemy_overlay_color_z", config.chams.player.enemy_overlay_color_z);
-    set_int("chams.player.enemy_overlay_material_z_type", static_cast<int>(config.chams.player.enemy_overlay_material_z_type));
-    set_bool("chams.player.enemy_overlay_flags.ignore_z", config.chams.player.enemy_overlay_flags.ignore_z);
-    set_bool("chams.player.team", config.chams.player.team);
-    set_color("chams.player.team_color", config.chams.player.team_color);
-    set_int("chams.player.team_material_type", static_cast<int>(config.chams.player.team_material_type));
-    set_color("chams.player.team_color_z", config.chams.player.team_color_z);
-    set_int("chams.player.team_material_z_type", static_cast<int>(config.chams.player.team_material_z_type));
-    set_bool("chams.player.team_flags.ignore_z", config.chams.player.team_flags.ignore_z);
-    set_bool("chams.player.friends", config.chams.player.friends);
-    set_color("chams.player.friend_color", config.chams.player.friend_color);
-    set_int("chams.player.friend_material_type", static_cast<int>(config.chams.player.friend_material_type));
-    set_color("chams.player.friend_color_z", config.chams.player.friend_color_z);
-    set_int("chams.player.friend_material_z_type", static_cast<int>(config.chams.player.friend_material_z_type));
-    set_bool("chams.player.friends_flags.ignore_z", config.chams.player.friends_flags.ignore_z);
-    set_bool("chams.player.local", config.chams.player.local);
-    set_color("chams.player.local_color", config.chams.player.local_color);
-    set_int("chams.player.local_material_type", static_cast<int>(config.chams.player.local_material_type));
-    set_bool("chams.player.backtrack", config.chams.player.backtrack);
-    set_color("chams.player.backtrack_color", config.chams.player.backtrack_color);
-    set_int("chams.player.backtrack_material_type", static_cast<int>(config.chams.player.backtrack_material_type));
-    set_color("chams.player.backtrack_color_z", config.chams.player.backtrack_color_z);
-    set_int("chams.player.backtrack_material_z_type", static_cast<int>(config.chams.player.backtrack_material_z_type));
-    set_bool("chams.player.backtrack_flags.ignore_z", config.chams.player.backtrack_flags.ignore_z);
-    set_int("chams.player.backtrack_ticks", config.chams.player.backtrack_ticks);
+    erase_prefix("visuals.groups.");
+    const std::size_t visual_group_count = std::min(config.visual_groups.groups.size(), visual_group_config::max_groups);
+    set_int("visuals.groups.count", static_cast<int>(visual_group_count));
+    set_int("visuals.groups.active_mask", static_cast<int>(config.visual_groups.active_group_mask));
+    for (std::size_t index = 0; index < visual_group_count; ++index)
+    {
+        const visual_group& group = config.visual_groups.groups[index];
+        const std::string prefix = "visuals.groups." + std::to_string(index) + ".";
+        set_string(prefix + "name", group.name);
+        set_color(prefix + "color", group.color);
+        set_bool(prefix + "tags_override_color", group.tags_override_color);
+        set_int(prefix + "targets", static_cast<int>(group.targets));
+        set_int(prefix + "conditions", static_cast<int>(group.conditions));
+        set_int(prefix + "players", static_cast<int>(group.players));
+        set_int(prefix + "buildings", static_cast<int>(group.buildings));
+        set_int(prefix + "projectiles", static_cast<int>(group.projectiles));
+        set_int(prefix + "esp.draw_mask", static_cast<int>(group.esp.draw_mask));
+        set_int(prefix + "esp.box_style", static_cast<int>(group.esp.box_style));
+        set_float(prefix + "esp.start", group.esp.start);
+        set_float(prefix + "esp.end", group.esp.end);
+        set_bool(prefix + "esp.smooth_alpha", group.esp.smooth_alpha);
+        set_int(prefix + "esp.background_alpha", group.esp.background_alpha);
+        set_float(prefix + "esp.class_icon_scale", group.esp.class_icon_scale);
+        set_float(prefix + "esp.head_emoji_scale", group.esp.head_emoji_scale);
+        set_int(prefix + "esp.head_emoji_style", group.esp.head_emoji_style);
+        set_int(prefix + "esp.mafia_level_position", static_cast<int>(group.esp.mafia_level_position));
+        set_int(prefix + "chams.visible_material", static_cast<int>(group.chams.visible_material));
+        set_int(prefix + "chams.occluded_material", static_cast<int>(group.chams.occluded_material));
+        set_bool(prefix + "chams.ignore_z", group.chams.ignore_z);
+        set_int(prefix + "glow.outline_scale", group.glow.outline_scale);
+        set_float(prefix + "glow.blur_scale", group.glow.blur_scale);
+        set_float(prefix + "glow.start", group.glow.start);
+        set_float(prefix + "glow.end", group.glow.end);
+        set_bool(prefix + "glow.smooth_alpha", group.glow.smooth_alpha);
+        set_bool(prefix + "glow.filled_body", group.glow.filled_body);
+        set_bool(prefix + "offscreen_arrows", group.offscreen_arrows);
+        set_int(prefix + "offscreen_arrows_offset", group.offscreen_arrows_offset);
+        set_float(prefix + "offscreen_arrows_max_distance", group.offscreen_arrows_max_distance);
+        set_bool(prefix + "pickup_timer", group.pickup_timer);
+        set_int(prefix + "backtrack", static_cast<int>(group.backtrack));
+        set_int(prefix + "backtrack_chams.visible_material", static_cast<int>(group.backtrack_chams.visible_material));
+        set_int(prefix + "backtrack_chams.occluded_material", static_cast<int>(group.backtrack_chams.occluded_material));
+        set_bool(prefix + "backtrack_chams.ignore_z", group.backtrack_chams.ignore_z);
+        set_int(prefix + "backtrack_glow.outline_scale", group.backtrack_glow.outline_scale);
+        set_float(prefix + "backtrack_glow.blur_scale", group.backtrack_glow.blur_scale);
+        set_float(prefix + "backtrack_glow.start", group.backtrack_glow.start);
+        set_float(prefix + "backtrack_glow.end", group.backtrack_glow.end);
+        set_bool(prefix + "backtrack_glow.smooth_alpha", group.backtrack_glow.smooth_alpha);
+        set_bool(prefix + "backtrack_glow.filled_body", group.backtrack_glow.filled_body);
+        set_int(prefix + "trajectory", static_cast<int>(group.trajectory));
+        set_int(prefix + "sightlines", static_cast<int>(group.sightlines));
+    }
 
     set_bool("visuals.removals.scope", config.visuals.removals.scope);
     set_bool("visuals.removals.zoom", config.visuals.removals.zoom);
@@ -674,135 +639,74 @@ void config_store::export_config(Config& config) const
     config.ipc.auto_connect = true;
     config.ipc.auto_ignore_local_bots = true;
 #endif
-    config.esp.master = get_bool("esp.master", config.esp.master);
-    config.esp.lerp = get_bool("esp.lerp", config.esp.lerp);
-    config.esp.lerp_speed = std::clamp(get_float("esp.lerp_speed", config.esp.lerp_speed), 1.0f, 40.0f);
-    config.esp.player.enemy_color = get_color("esp.player.enemy_color", config.esp.player.enemy_color);
-    config.esp.player.team_color = get_color("esp.player.team_color", config.esp.player.team_color);
-    config.esp.player.friend_color = get_color("esp.player.friend_color", config.esp.player.friend_color);
-    config.esp.player.box = get_bool("esp.player.box", config.esp.player.box);
-    config.esp.player.box_style = static_cast<Esp::box_type>(std::clamp(
-        get_int("esp.player.box_style", static_cast<int>(config.esp.player.box_style)),
-        0,
-        4));
-    config.esp.player.health_bar = get_bool("esp.player.health_bar", config.esp.player.health_bar);
-    config.esp.player.name = get_bool("esp.player.name", config.esp.player.name);
-    config.esp.player.class_icon = get_bool("esp.player.class_icon", config.esp.player.class_icon);
-    config.esp.player.class_icon_scale = get_float("esp.player.class_icon_scale", config.esp.player.class_icon_scale);
-    config.esp.player.class_icon_teammates = get_bool("esp.player.class_icon_teammates", config.esp.player.class_icon_teammates);
-    config.esp.player.head_emoji = get_bool("esp.player.head_emoji", config.esp.player.head_emoji);
-    config.esp.player.head_emoji_scale = get_float("esp.player.head_emoji_scale", config.esp.player.head_emoji_scale);
-    config.esp.player.head_emoji_style = std::clamp(get_int("esp.player.head_emoji_style", config.esp.player.head_emoji_style), 0, 1);
-    config.esp.player.head_emoji_teammates = get_bool("esp.player.head_emoji_teammates", config.esp.player.head_emoji_teammates);
-    config.esp.player.flags.target_indicator = get_bool("esp.player.flags.target_indicator", config.esp.player.flags.target_indicator);
-    config.esp.player.flags.friend_indicator = get_bool("esp.player.flags.friend_indicator", config.esp.player.flags.friend_indicator);
-    config.esp.player.flags.scoped_indicator = get_bool("esp.player.flags.scoped_indicator", config.esp.player.flags.scoped_indicator);
-    config.esp.player.enemy = get_bool("esp.player.enemy", config.esp.player.enemy);
-    config.esp.player.team = get_bool("esp.player.team", config.esp.player.team);
-    config.esp.player.friends = get_bool("esp.player.friends", config.esp.player.friends);
-    config.esp.pickup.box = get_bool("esp.pickup.box", config.esp.pickup.box);
-    config.esp.pickup.box_style = static_cast<Esp::box_type>(std::clamp(
-        get_int("esp.pickup.box_style", static_cast<int>(config.esp.pickup.box_style)),
-        0,
-        4));
-    config.esp.pickup.name = get_bool("esp.pickup.name", config.esp.pickup.name);
-    config.esp.intelligence.box = get_bool("esp.intelligence.box", config.esp.intelligence.box);
-    config.esp.intelligence.box_style = static_cast<Esp::box_type>(std::clamp(
-        get_int("esp.intelligence.box_style", static_cast<int>(config.esp.intelligence.box_style)),
-        0,
-        4));
-    config.esp.intelligence.name = get_bool("esp.intelligence.name", config.esp.intelligence.name);
-    config.esp.buildings.box = get_bool("esp.buildings.box", config.esp.buildings.box);
-    config.esp.buildings.box_style = static_cast<Esp::box_type>(std::clamp(
-        get_int("esp.buildings.box_style", static_cast<int>(config.esp.buildings.box_style)),
-        0,
-        4));
-    config.esp.buildings.health_bar = get_bool("esp.buildings.health_bar", config.esp.buildings.health_bar);
-    config.esp.buildings.name = get_bool("esp.buildings.name", config.esp.buildings.name);
-    config.esp.buildings.team = get_bool("esp.buildings.team", config.esp.buildings.team);
-
-    config.glow.master = get_bool("glow.master", get_bool("esp.glow.enabled", config.glow.master));
-    config.glow.outline_scale = std::clamp(
-        get_int("glow.outline_scale", get_int("esp.glow.stencil", config.glow.outline_scale)),
-        0,
-        10);
-    config.glow.blur_scale = std::clamp(
-        get_float("glow.blur_scale", get_float("esp.glow.blur", config.glow.blur_scale)),
-        0.0f,
-        10.0f);
-    config.glow.start = std::clamp(
-        get_float("glow.start", get_float("esp.glow.start", config.glow.start)),
-        0.0f,
-        8192.0f);
-    config.glow.end = std::clamp(
-        get_float("glow.end", get_float("esp.glow.end", config.glow.end)),
-        0.0f,
-        8192.0f);
-    if (config.glow.end < config.glow.start) {
-        config.glow.end = config.glow.start;
+    config.visual_groups.groups.clear();
+    const int visual_group_count = std::clamp(get_int("visuals.groups.count", 0), 0, static_cast<int>(visual_group_config::max_groups));
+    config.visual_groups.groups.reserve(static_cast<std::size_t>(visual_group_count));
+    for (int index = 0; index < visual_group_count; ++index)
+    {
+        const std::string prefix = "visuals.groups." + std::to_string(index) + ".";
+        visual_group group{};
+        group.name = get_string(prefix + "name", group.name);
+        group.color = get_color(prefix + "color", group.color);
+        group.tags_override_color = get_bool(prefix + "tags_override_color", group.tags_override_color);
+        group.targets = static_cast<uint32_t>(std::max(0, get_int(prefix + "targets", static_cast<int>(group.targets))));
+        group.conditions = static_cast<uint32_t>(std::max(0, get_int(prefix + "conditions", static_cast<int>(group.conditions))));
+        group.players = static_cast<uint32_t>(std::max(0, get_int(prefix + "players", static_cast<int>(group.players))));
+        group.buildings = static_cast<uint32_t>(std::max(0, get_int(prefix + "buildings", static_cast<int>(group.buildings))));
+        group.projectiles = static_cast<uint32_t>(std::max(0, get_int(prefix + "projectiles", static_cast<int>(group.projectiles))));
+        group.esp.draw_mask = static_cast<uint32_t>(std::max(0, get_int(prefix + "esp.draw_mask", static_cast<int>(group.esp.draw_mask))));
+        group.esp.box_style = static_cast<esp_box_type>(std::clamp(get_int(prefix + "esp.box_style", static_cast<int>(group.esp.box_style)), 0, 4));
+        group.esp.start = std::clamp(get_float(prefix + "esp.start", group.esp.start), 0.0f, 8192.0f);
+        group.esp.end = std::clamp(get_float(prefix + "esp.end", group.esp.end), 0.0f, 8192.0f);
+        if (group.esp.end < group.esp.start) {
+            group.esp.end = group.esp.start;
+        }
+        group.esp.smooth_alpha = get_bool(prefix + "esp.smooth_alpha", group.esp.smooth_alpha);
+        group.esp.background_alpha = static_cast<uint8_t>(std::clamp(get_int(prefix + "esp.background_alpha", group.esp.background_alpha), 0, 255));
+        group.esp.class_icon_scale = std::clamp(get_float(prefix + "esp.class_icon_scale", group.esp.class_icon_scale), 0.5f, 5.0f);
+        group.esp.head_emoji_scale = std::clamp(get_float(prefix + "esp.head_emoji_scale", group.esp.head_emoji_scale), 0.5f, 5.0f);
+        group.esp.head_emoji_style = std::clamp(get_int(prefix + "esp.head_emoji_style", group.esp.head_emoji_style), 0, 1);
+        group.esp.mafia_level_position = static_cast<mafia_level_position>(std::clamp(get_int(prefix + "esp.mafia_level_position", static_cast<int>(group.esp.mafia_level_position)), 0, 2));
+        group.chams.visible_material = static_cast<chams_material_type>(std::clamp(get_int(prefix + "chams.visible_material", static_cast<int>(group.chams.visible_material)), 0, 10));
+        group.chams.occluded_material = static_cast<chams_material_type>(std::clamp(get_int(prefix + "chams.occluded_material", static_cast<int>(group.chams.occluded_material)), 0, 10));
+        group.chams.ignore_z = get_bool(prefix + "chams.ignore_z", group.chams.ignore_z);
+        group.glow.outline_scale = std::clamp(get_int(prefix + "glow.outline_scale", group.glow.outline_scale), 0, 10);
+        group.glow.blur_scale = std::clamp(get_float(prefix + "glow.blur_scale", group.glow.blur_scale), 0.0f, 10.0f);
+        group.glow.start = std::clamp(get_float(prefix + "glow.start", group.glow.start), 0.0f, 8192.0f);
+        group.glow.end = std::clamp(get_float(prefix + "glow.end", group.glow.end), 0.0f, 8192.0f);
+        if (group.glow.end < group.glow.start) {
+            group.glow.end = group.glow.start;
+        }
+        group.glow.smooth_alpha = get_bool(prefix + "glow.smooth_alpha", group.glow.smooth_alpha);
+        group.glow.filled_body = get_bool(prefix + "glow.filled_body", group.glow.filled_body);
+        group.offscreen_arrows = get_bool(prefix + "offscreen_arrows", group.offscreen_arrows);
+        group.offscreen_arrows_offset = std::clamp(get_int(prefix + "offscreen_arrows_offset", group.offscreen_arrows_offset), 0, 500);
+        group.offscreen_arrows_max_distance = std::clamp(get_float(prefix + "offscreen_arrows_max_distance", group.offscreen_arrows_max_distance), 0.0f, 8192.0f);
+        group.pickup_timer = get_bool(prefix + "pickup_timer", group.pickup_timer);
+        group.backtrack = static_cast<uint32_t>(std::max(0, get_int(prefix + "backtrack", static_cast<int>(group.backtrack))));
+        group.backtrack_chams.visible_material = static_cast<chams_material_type>(std::clamp(get_int(prefix + "backtrack_chams.visible_material", static_cast<int>(group.backtrack_chams.visible_material)), 0, 10));
+        group.backtrack_chams.occluded_material = static_cast<chams_material_type>(std::clamp(get_int(prefix + "backtrack_chams.occluded_material", static_cast<int>(group.backtrack_chams.occluded_material)), 0, 10));
+        group.backtrack_chams.ignore_z = get_bool(prefix + "backtrack_chams.ignore_z", group.backtrack_chams.ignore_z);
+        group.backtrack_glow.outline_scale = std::clamp(get_int(prefix + "backtrack_glow.outline_scale", group.backtrack_glow.outline_scale), 0, 10);
+        group.backtrack_glow.blur_scale = std::clamp(get_float(prefix + "backtrack_glow.blur_scale", group.backtrack_glow.blur_scale), 0.0f, 10.0f);
+        group.backtrack_glow.start = std::clamp(get_float(prefix + "backtrack_glow.start", group.backtrack_glow.start), 0.0f, 8192.0f);
+        group.backtrack_glow.end = std::clamp(get_float(prefix + "backtrack_glow.end", group.backtrack_glow.end), 0.0f, 8192.0f);
+        if (group.backtrack_glow.end < group.backtrack_glow.start) {
+            group.backtrack_glow.end = group.backtrack_glow.start;
+        }
+        group.backtrack_glow.smooth_alpha = get_bool(prefix + "backtrack_glow.smooth_alpha", group.backtrack_glow.smooth_alpha);
+        group.backtrack_glow.filled_body = get_bool(prefix + "backtrack_glow.filled_body", group.backtrack_glow.filled_body);
+        group.trajectory = static_cast<uint32_t>(std::max(0, get_int(prefix + "trajectory", static_cast<int>(group.trajectory))));
+        group.sightlines = static_cast<uint32_t>(std::max(0, get_int(prefix + "sightlines", static_cast<int>(group.sightlines))));
+        config.visual_groups.groups.emplace_back(group);
     }
-    config.glow.smooth_alpha = get_bool("glow.smooth_alpha", get_bool("esp.glow.smooth_alpha", config.glow.smooth_alpha));
-    config.glow.filled_body = get_bool("glow.filled_body", config.glow.filled_body);
-    config.glow.player.enemy = get_bool("glow.player.enemy", config.esp.player.enemy);
-    config.glow.player.team = get_bool("glow.player.team", config.esp.player.team);
-    config.glow.player.friends = get_bool("glow.player.friends", config.esp.player.friends);
-    config.glow.player.local = get_bool("glow.player.local", config.glow.player.local);
-    config.glow.player.enemy_color = get_color("glow.player.enemy_color", config.esp.player.enemy_color);
-    config.glow.player.enemy_color_z = get_color("glow.player.enemy_color_z", config.glow.player.enemy_color);
-    config.glow.player.team_color = get_color("glow.player.team_color", config.esp.player.team_color);
-    config.glow.player.team_color_z = get_color("glow.player.team_color_z", config.glow.player.team_color);
-    config.glow.player.friend_color = get_color("glow.player.friend_color", config.esp.player.friend_color);
-    config.glow.player.friend_color_z = get_color("glow.player.friend_color_z", config.glow.player.friend_color);
-    config.glow.player.local_color = get_color("glow.player.local_color", config.glow.player.local_color);
-
-    config.chams.master = get_bool("chams.master", config.chams.master);
-    config.chams.player.enemy = get_bool("chams.player.enemy", config.chams.player.enemy);
-    config.chams.player.enemy_color = get_color("chams.player.enemy_color", config.chams.player.enemy_color);
-    config.chams.player.enemy_material_type = static_cast<Chams::Player::material_type>(
-        get_int("chams.player.enemy_material_type", static_cast<int>(config.chams.player.enemy_material_type)));
-    config.chams.player.enemy_color_z = get_color("chams.player.enemy_color_z", config.chams.player.enemy_color_z);
-    config.chams.player.enemy_material_z_type = static_cast<Chams::Player::material_type>(
-        get_int("chams.player.enemy_material_z_type", static_cast<int>(config.chams.player.enemy_material_z_type)));
-    config.chams.player.enemy_flags.ignore_z = get_bool("chams.player.enemy_flags.ignore_z", config.chams.player.enemy_flags.ignore_z);
-    config.chams.player.enemy_overlay_color = get_color("chams.player.enemy_overlay_color", config.chams.player.enemy_overlay_color);
-    config.chams.player.enemy_overlay_material_type = static_cast<Chams::Player::material_type>(
-        get_int("chams.player.enemy_overlay_material_type", static_cast<int>(config.chams.player.enemy_overlay_material_type)));
-    config.chams.player.enemy_overlay_color_z = get_color("chams.player.enemy_overlay_color_z", config.chams.player.enemy_overlay_color_z);
-    config.chams.player.enemy_overlay_material_z_type = static_cast<Chams::Player::material_type>(
-        get_int("chams.player.enemy_overlay_material_z_type", static_cast<int>(config.chams.player.enemy_overlay_material_z_type)));
-    config.chams.player.enemy_overlay_flags.ignore_z = get_bool("chams.player.enemy_overlay_flags.ignore_z", config.chams.player.enemy_overlay_flags.ignore_z);
-    config.chams.player.team = get_bool("chams.player.team", config.chams.player.team);
-    config.chams.player.team_color = get_color("chams.player.team_color", config.chams.player.team_color);
-    config.chams.player.team_material_type = static_cast<Chams::Player::material_type>(
-        get_int("chams.player.team_material_type", static_cast<int>(config.chams.player.team_material_type)));
-    config.chams.player.team_color_z = get_color("chams.player.team_color_z", config.chams.player.team_color_z);
-    config.chams.player.team_material_z_type = static_cast<Chams::Player::material_type>(
-        get_int("chams.player.team_material_z_type", static_cast<int>(config.chams.player.team_material_z_type)));
-    config.chams.player.team_flags.ignore_z = get_bool("chams.player.team_flags.ignore_z", config.chams.player.team_flags.ignore_z);
-    config.chams.player.friends = get_bool("chams.player.friends", config.chams.player.friends);
-    config.chams.player.friend_color = get_color("chams.player.friend_color", config.chams.player.friend_color);
-    config.chams.player.friend_material_type = static_cast<Chams::Player::material_type>(
-        get_int("chams.player.friend_material_type", static_cast<int>(config.chams.player.friend_material_type)));
-    config.chams.player.friend_color_z = get_color("chams.player.friend_color_z", config.chams.player.friend_color_z);
-    config.chams.player.friend_material_z_type = static_cast<Chams::Player::material_type>(
-        get_int("chams.player.friend_material_z_type", static_cast<int>(config.chams.player.friend_material_z_type)));
-    config.chams.player.friends_flags.ignore_z = get_bool("chams.player.friends_flags.ignore_z", config.chams.player.friends_flags.ignore_z);
-    config.chams.player.local = get_bool("chams.player.local", config.chams.player.local);
-    config.chams.player.local_color = get_color("chams.player.local_color", config.chams.player.local_color);
-    config.chams.player.local_material_type = static_cast<Chams::Player::material_type>(
-        get_int("chams.player.local_material_type", static_cast<int>(config.chams.player.local_material_type)));
-    config.chams.player.backtrack = get_bool("chams.player.backtrack", config.chams.player.backtrack);
-    config.chams.player.backtrack_color = get_color("chams.player.backtrack_color", config.chams.player.backtrack_color);
-    config.chams.player.backtrack_material_type = static_cast<Chams::Player::material_type>(
-        get_int("chams.player.backtrack_material_type", static_cast<int>(config.chams.player.backtrack_material_type)));
-    config.chams.player.backtrack_color_z = get_color("chams.player.backtrack_color_z", config.chams.player.backtrack_color_z);
-    config.chams.player.backtrack_material_z_type = static_cast<Chams::Player::material_type>(
-        get_int("chams.player.backtrack_material_z_type", static_cast<int>(config.chams.player.backtrack_material_z_type)));
-    config.chams.player.backtrack_flags.ignore_z = get_bool("chams.player.backtrack_flags.ignore_z", config.chams.player.backtrack_flags.ignore_z);
-    config.chams.player.backtrack_ticks = std::clamp(
-        get_int("chams.player.backtrack_ticks", config.chams.player.backtrack_ticks),
-        1,
-        80);
+    config.visual_groups.active_group_mask = static_cast<uint32_t>(std::max(0, get_int("visuals.groups.active_mask", static_cast<int>(config.visual_groups.active_group_mask))));
+    if (config.visual_groups.groups.empty()) {
+        visual_groups::ensure_defaults();
+    } else {
+        const uint32_t valid_mask = config.visual_groups.groups.size() >= visual_group_config::max_groups ? 0xFFFFFFFFu : ((1u << config.visual_groups.groups.size()) - 1u);
+        config.visual_groups.active_group_mask &= valid_mask;
+    }
 
     config.visuals.removals.scope = get_bool("visuals.removals.scope", config.visuals.removals.scope);
     config.visuals.removals.zoom = get_bool("visuals.removals.zoom", config.visuals.removals.zoom);
