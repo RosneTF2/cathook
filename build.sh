@@ -107,6 +107,18 @@ fix_install_permissions() {
     fi
 }
 
+fix_runtime_permissions_once() {
+    local permissions_script="$project_root/botpanel/fix_permissions"
+
+    if [ "$(uname -s)" != "Linux" ]; then
+        return
+    fi
+
+    if [ -x "$permissions_script" ]; then
+        "$permissions_script" --once
+    fi
+}
+
 restore_workspace_permissions() {
     if [ "$(id -u)" -ne 0 ] || [ -z "${SUDO_UID:-}" ] || [ -z "${SUDO_GID:-}" ]; then
         return
@@ -448,3 +460,5 @@ clear_execstack_if_needed "$project_root/bin/libcathooktextmode.so"
 if [ "$install_enabled" = "1" ]; then
     install_outputs "$selected_mode"
 fi
+
+fix_runtime_permissions_once

@@ -391,6 +391,14 @@ update_navmeshes() {
     copy_navmeshes_to "$tf2_maps" "TF2 maps directory"
 }
 
+fix_runtime_permissions_once() {
+    local permissions_script="$script_dir/fix_permissions"
+
+    if [ -x "$permissions_script" ]; then
+        "$permissions_script" --once
+    fi
+}
+
 parse_args "$@"
 
 if [ "$(uname -s)" != "Linux" ]; then
@@ -417,6 +425,7 @@ build_web_panel
 prepare_botpanel_state
 prepare_firejail
 update_navmeshes
+fix_runtime_permissions_once
 
 echo
 echo "Done. Start the panel with ./botpanel/start"
