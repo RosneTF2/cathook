@@ -26,7 +26,6 @@ V  o o  V  file: src/features/automation/autoitem/autoitem.cpp
 #include <string_view>
 #include <vector>
 
-#include "core/memory/byte_patch.hpp"
 #include "core/print.hpp"
 #include "core/shared/sigs.hpp"
 #include "features/automation/nographics/nographics.hpp"
@@ -57,6 +56,13 @@ constexpr int fallback_attempt_limit = 3;
 constexpr int max_crafting_inputs = 12;
 constexpr int pending_pickup_ack_attempt_limit = 6;
 constexpr float pending_pickup_ack_retry_seconds = 0.5f;
+constexpr std::uint32_t gc_protobuf_mask = 0x80000000u;
+constexpr std::uint32_t gc_msg_craft = 1002;
+constexpr std::uint32_t gc_msg_adjust_item_equipped_state = 1059;
+constexpr std::uint32_t gc_msg_item_preview_request = 1703;
+constexpr std::uint16_t gc_header_version = 1;
+constexpr std::uint64_t gc_invalid_job_id = ~0ull;
+constexpr std::uint16_t gc_custom_craft_recipe = 0xFFFEu;
 
 constexpr std::uintptr_t inventory_item_array_offset = 0x60;
 constexpr std::uintptr_t inventory_item_count_offset = 0x70;
@@ -65,21 +71,10 @@ constexpr std::uintptr_t inventory_item_id_high_offset = 0x58;
 constexpr std::uintptr_t inventory_item_id_low_offset = 0x5C;
 constexpr std::uintptr_t inventory_item_def_offset = 0x64;
 
-constexpr std::uintptr_t crafting_panel_input_items_offset = 0x310;
-constexpr std::uintptr_t crafting_panel_recipe_offset = 0x450;
-constexpr std::size_t crafting_panel_size = 0x51C;
-constexpr std::uintptr_t crafting_ui_skip_patch_offset = 0x219;
-constexpr std::uint8_t crafting_ui_skip_patch[] = { 0xE9, 0x84, 0x00, 0x00, 0x00 };
-constexpr std::uintptr_t preview_emsg_patch_offset = 0x107;
-constexpr std::uint8_t preview_emsg_grant_byte = 0xA7;
 constexpr int inventory_manager_get_local_inventory_index = 24;
 constexpr int inventory_manager_show_items_picked_up_index = 35;
 
 
-using get_first_item_of_item_def_fn = void* (*)(void*, int);
-using equip_item_in_loadout_fn = bool (*)(void*, int, int, std::uint64_t);
-using do_preview_item_fn = void (*)(void*, int);
-using craft_custom_fn = void (*)(void*);
 using get_local_inventory_fn = void* (*)(void*);
 using show_items_picked_up_fn = bool (*)(void*, bool, bool, bool);
 
@@ -87,10 +82,6 @@ struct inventory_api
 {
   bool initialized = false;
   void* inventory_manager = nullptr;
-  get_first_item_of_item_def_fn get_first_item_of_item_def = nullptr;
-  equip_item_in_loadout_fn equip_item_in_loadout = nullptr;
-  do_preview_item_fn do_preview_item = nullptr;
-  craft_custom_fn craft_custom = nullptr;
 };
 
 struct achievement_item
@@ -269,12 +260,6 @@ value_type read_unaligned(const void* address)
   return value;
 }
 
-template <typename value_type>
-void write_unaligned(void* address, const value_type& value)
-{
-  std::memcpy(address, &value, sizeof(value));
-}
-
 std::vector<int> parse_int_list(std::string_view value, const char delimiter)
 {
   const auto pieces = split(value, delimiter);
@@ -359,11 +344,7 @@ bool has_achievement(const int achievement_id)
 
 bool inventory_api_resolved()
 {
-  return g_inventory_api.inventory_manager != nullptr &&
-         g_inventory_api.get_first_item_of_item_def != nullptr &&
-         g_inventory_api.equip_item_in_loadout != nullptr &&
-         g_inventory_api.do_preview_item != nullptr &&
-         g_inventory_api.craft_custom != nullptr;
+  return g_inventory_api.inventory_manager != nullptr;
 }
 
 bool api_ready()
@@ -459,6 +440,106 @@ std::optional<std::uint64_t> get_first_item_id_of_item_def(const int item_def_id
 bool has_item_def(const int item_def_id)
 {
   return get_first_item_id_of_item_def(item_def_id).has_value();
+}
+
+void append_u16(std::vector<std::uint8_t>& output, const std::uint16_t value)
+{
+  output.emplace_back(static_cast<std::uint8_t>(value & 0xFFu));
+  output.emplace_back(static_cast<std::uint8_t>((value >> 8u) & 0xFFu));
+}
+
+void append_u32(std::vector<std::uint8_t>& output, const std::uint32_t value)
+{
+  output.emplace_back(static_cast<std::uint8_t>(value & 0xFFu));
+  output.emplace_back(static_cast<std::uint8_t>((value >> 8u) & 0xFFu));
+  output.emplace_back(static_cast<std::uint8_t>((value >> 16u) & 0xFFu));
+  output.emplace_back(static_cast<std::uint8_t>((value >> 24u) & 0xFFu));
+}
+
+void append_u64(std::vector<std::uint8_t>& output, const std::uint64_t value)
+{
+  for (int index = 0; index < 8; ++index)
+  {
+    output.emplace_back(static_cast<std::uint8_t>((value >> (index * 8)) & 0xFFu));
+  }
+}
+
+void append_var_uint64(std::vector<std::uint8_t>& output, std::uint64_t value)
+{
+  while (value >= 0x80u)
+  {
+    output.emplace_back(static_cast<std::uint8_t>((value & 0x7Fu) | 0x80u));
+    value >>= 7u;
+  }
+  output.emplace_back(static_cast<std::uint8_t>(value));
+}
+
+void append_gc_header(std::vector<std::uint8_t>& output)
+{
+  append_u16(output, gc_header_version);
+  append_u64(output, gc_invalid_job_id);
+  append_u64(output, gc_invalid_job_id);
+}
+
+void append_proto_varint(std::vector<std::uint8_t>& output, const std::uint32_t field_number, const std::uint64_t value)
+{
+  append_var_uint64(output, static_cast<std::uint64_t>(field_number) << 3u);
+  append_var_uint64(output, value);
+}
+
+bool send_gc_message(const std::uint32_t message_type, const std::vector<std::uint8_t>& payload, const bool protobuf)
+{
+  steam_game_coordinator* coordinator = steam_runtime::resolve_steam_game_coordinator();
+  if (coordinator == nullptr || payload.empty())
+  {
+    error_log("steam game coordinator unavailable for message %u\n", message_type);
+    return false;
+  }
+
+  const std::uint32_t wire_message_type = protobuf ? (message_type | gc_protobuf_mask) : message_type;
+  return coordinator->send_message(
+    wire_message_type,
+    payload.data(),
+    static_cast<std::uint32_t>(payload.size()));
+}
+
+bool send_equip_item_request(const int class_id, const int slot, const std::uint64_t item_id)
+{
+  std::vector<std::uint8_t> payload{};
+  payload.reserve(32);
+  append_gc_header(payload);
+  append_proto_varint(payload, 1, item_id);
+  append_proto_varint(payload, 2, static_cast<std::uint32_t>(class_id));
+  append_proto_varint(payload, 3, static_cast<std::uint32_t>(slot));
+  return send_gc_message(gc_msg_adjust_item_equipped_state, payload, true);
+}
+
+bool send_preview_item_request(const int item_def_id)
+{
+  std::vector<std::uint8_t> payload{};
+  payload.reserve(22);
+  append_gc_header(payload);
+  append_u32(payload, static_cast<std::uint32_t>(item_def_id));
+  return send_gc_message(gc_msg_item_preview_request, payload, false);
+}
+
+bool send_craft_request(const std::vector<std::uint64_t>& item_ids)
+{
+  if (item_ids.empty() || item_ids.size() > max_crafting_inputs)
+  {
+    return false;
+  }
+
+  std::vector<std::uint8_t> payload{};
+  payload.reserve(22 + (item_ids.size() * sizeof(std::uint64_t)));
+  append_gc_header(payload);
+  append_u16(payload, gc_custom_craft_recipe);
+  append_u16(payload, static_cast<std::uint16_t>(item_ids.size()));
+  for (const std::uint64_t item_id : item_ids)
+  {
+    append_u64(payload, item_id);
+  }
+  return send_gc_message(gc_msg_craft, payload, false);
 }
 
 int corrected_loadout_slot(const int class_id, const int slot)
@@ -602,11 +683,7 @@ bool equip_item(const int class_id, const int slot, const int item_def_id, const
 
   if (item_def_id == -1)
   {
-    const bool ok = g_inventory_api.equip_item_in_loadout(
-      g_inventory_api.inventory_manager,
-      class_id,
-      loadout_slot,
-      static_cast<std::uint64_t>(-1));
+    const bool ok = send_equip_item_request(class_id, loadout_slot, static_cast<std::uint64_t>(-1));
     if (!ok) error_log("unequip failed class=%d slot=%d\n", class_id, loadout_slot);
     return ok;
   }
@@ -622,7 +699,7 @@ bool equip_item(const int class_id, const int slot, const int item_def_id, const
     return false;
   }
 
-  const bool ok = g_inventory_api.equip_item_in_loadout(g_inventory_api.inventory_manager, class_id, loadout_slot, *item_id);
+  const bool ok = send_equip_item_request(class_id, loadout_slot, *item_id);
   if (!ok)
   {
     error_log("equip failed class=%d slot=%d def=%d item_id=%llu\n",
@@ -824,23 +901,12 @@ int seasonal_noisemaker_item_def()
   return birthday_noisemaker_def;
 }
 
-template <typename function_type>
-void resolve_signature(function_type& target, const char* signature)
-{
-  if (target != nullptr) return;
-  target = reinterpret_cast<function_type>(sigscan_module("client.so", signature));
-}
-
 void log_resolution_status(const char* tag)
 {
-  print("[autoitem] %s after %d attempt(s) manager=%p first=%p equip=%p rent=%p craft=%p\n",
+  print("[autoitem] %s after %d attempt(s) manager=%p\n",
     tag,
     g_initialize_retry_count,
-    g_inventory_api.inventory_manager,
-    reinterpret_cast<void*>(g_inventory_api.get_first_item_of_item_def),
-    reinterpret_cast<void*>(g_inventory_api.equip_item_in_loadout),
-    reinterpret_cast<void*>(g_inventory_api.do_preview_item),
-    reinterpret_cast<void*>(g_inventory_api.craft_custom));
+    g_inventory_api.inventory_manager);
 }
 
 } // namespace
@@ -866,11 +932,6 @@ void initialize()
       g_inventory_api.inventory_manager = decode_rip_relative(initializer + 1, 3, 7);
     }
   }
-
-  resolve_signature(g_inventory_api.get_first_item_of_item_def, sigs::tf_inventory_get_first_item_of_item_def);
-  resolve_signature(g_inventory_api.equip_item_in_loadout, sigs::tf_inventory_equip_item_in_loadout);
-  resolve_signature(g_inventory_api.do_preview_item, sigs::tf_inventory_do_preview_item);
-  resolve_signature(g_inventory_api.craft_custom, sigs::tf_inventory_craft_custom);
 
   if (!inventory_api_resolved())
   {
@@ -973,20 +1034,16 @@ void on_create_move()
 
 bool rent_item(const int item_def_id)
 {
-  if (!api_ready() || item_def_id <= 0)
+  if (item_def_id <= 0)
   {
     return false;
   }
 
   debug_log("requesting preview item def %d\n", item_def_id);
-  auto* emsg_target = reinterpret_cast<std::uint8_t*>(reinterpret_cast<void*>(g_inventory_api.do_preview_item)) + preview_emsg_patch_offset;
-  byte_patch emsg_patch(emsg_target, { preview_emsg_grant_byte });
-  if (!emsg_patch.apply())
+  if (!send_preview_item_request(item_def_id))
   {
     return false;
   }
-  g_inventory_api.do_preview_item(nullptr, item_def_id);
-  emsg_patch.restore();
   queue_pending_pickup_ack();
   return true;
 }
@@ -1017,28 +1074,11 @@ bool craft_items(const std::vector<int>& item_def_ids)
     selected_item_ids.emplace_back(*selected);
   }
 
-  std::array<std::uint8_t, crafting_panel_size> panel{};
-  for (std::size_t index = 0; index < selected_item_ids.size(); ++index)
-  {
-    write_unaligned(
-      panel.data() + crafting_panel_input_items_offset + (index * sizeof(std::uint64_t)),
-      selected_item_ids[index]);
-  }
-  const int custom_recipe = -2;
-  write_unaligned(panel.data() + crafting_panel_recipe_offset, custom_recipe);
-
-  auto* patch_target = reinterpret_cast<std::uint8_t*>(reinterpret_cast<void*>(g_inventory_api.craft_custom)) + crafting_ui_skip_patch_offset;
-  byte_patch ui_skip_patch(
-    patch_target,
-    { crafting_ui_skip_patch[0], crafting_ui_skip_patch[1], crafting_ui_skip_patch[2], crafting_ui_skip_patch[3], crafting_ui_skip_patch[4] });
-
-  if (!ui_skip_patch.apply())
+  if (!send_craft_request(selected_item_ids))
   {
     return false;
   }
 
-  g_inventory_api.craft_custom(panel.data());
-  ui_skip_patch.restore();
   queue_pending_pickup_ack();
   return true;
 }

@@ -14,6 +14,7 @@ V  o o  V  file: src/games/tf2/sdk/interfaces/steam_client.hpp
 
 #include "games/tf2/sdk/interfaces/steam_user.hpp"
 #include "games/tf2/sdk/interfaces/steam_user_stats.hpp"
+#include "games/tf2/sdk/interfaces/steam_game_coordinator.hpp"
 
 class SteamClient {
 public:
@@ -55,6 +56,15 @@ public:
     auto get_steam_user_stats_interface_fn = reinterpret_cast<steam_user_stats* (*)(void*, int, int, const char*)>(vtable[13]);
 
     return get_steam_user_stats_interface_fn(this, steam_user, steam_pipe, version);
+  }
+
+  steam_game_coordinator* get_steam_generic_interface(int steam_user, int steam_pipe, const char* version) {
+    void** vtable = *(void***)this;
+
+    steam_game_coordinator* (*get_steam_generic_interface_fn)(void*, int, int, const char*) =
+      reinterpret_cast<steam_game_coordinator* (*)(void*, int, int, const char*)>(vtable[12]);
+
+    return get_steam_generic_interface_fn(this, steam_user, steam_pipe, version);
   }
 };
 

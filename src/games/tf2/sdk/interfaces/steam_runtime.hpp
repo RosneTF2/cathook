@@ -19,6 +19,7 @@ V  o o  V  file: src/games/tf2/sdk/interfaces/steam_runtime.hpp
 #include <dlfcn.h>
 
 #include "games/tf2/sdk/interfaces/steam_client.hpp"
+#include "games/tf2/sdk/interfaces/steam_game_coordinator.hpp"
 #include "games/tf2/sdk/interfaces/steam_user.hpp"
 #include "games/tf2/sdk/interfaces/steam_user_stats.hpp"
 
@@ -278,6 +279,56 @@ inline steam_user_stats* resolve_steam_user_stats()
   }
 
   return nullptr;
+}
+
+inline int steam_api_steam_user_handle()
+{
+  using steam_api_handle_fn = int (*)();
+
+  steam_api_handle_fn get_steam_user = resolve_loaded_symbol<steam_api_handle_fn>("SteamAPI_GetHSteamUser");
+  return get_steam_user != nullptr ? get_steam_user() : 0;
+}
+
+inline int steam_api_steam_pipe_handle()
+{
+  using steam_api_handle_fn = int (*)();
+
+  steam_api_handle_fn get_steam_pipe = resolve_loaded_symbol<steam_api_handle_fn>("SteamAPI_GetHSteamPipe");
+  return get_steam_pipe != nullptr ? get_steam_pipe() : 0;
+}
+
+inline steam_game_coordinator* resolve_steam_game_coordinator()
+{
+  if (steam_game_coordinator_interface != nullptr)
+  {
+    return steam_game_coordinator_interface;
+  }
+
+  auto* steam_client_interface = resolve_steam_client();
+  if (steam_client_interface == nullptr)
+  {
+    return nullptr;
+  }
+
+  int steam_pipe = steam_api_steam_pipe_handle();
+  int steam_user_handle_value = steam_api_steam_user_handle();
+  if (steam_pipe == 0 || steam_user_handle_value == 0)
+  {
+    steam_pipe = steam_pipe_handle();
+    steam_user_handle_value = steam_user_handle();
+  }
+
+  if (steam_pipe == 0 || steam_user_handle_value == 0)
+  {
+    return nullptr;
+  }
+
+  steam_game_coordinator_interface = steam_client_interface->get_steam_generic_interface(
+    steam_user_handle_value,
+    steam_pipe,
+    "SteamGameCoordinator001");
+
+  return steam_game_coordinator_interface;
 }
 
 } // namespace steam_runtime

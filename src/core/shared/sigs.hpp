@@ -87,14 +87,6 @@ constexpr const char* tf_projectile_sticky_arm_time =
 
 constexpr const char* tf_inventory_manager_initializer =
   "55 48 8D 3D ? ? ? ? 48 89 E5 E8 ? ? ? ? 48 8D 15 ? ? ? ? 48 8D 35 ? ? ? ? 48 8D 3D ? ? ? ? E8 ? ? ? ? 48 8D 15 ? ? ? ?";
-constexpr const char* tf_inventory_get_first_item_of_item_def =
-  "55 48 8D 0D ? ? ? ? 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC ? 48 8B 07 48 8B 80 ? ? ? ?";
-constexpr const char* tf_inventory_equip_item_in_loadout =
-  "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC ? 48 8D 05 ? ? ? ? 89 55 ? 48 8B 00 48 85 C0 74 ? 48 83 78 ? ? 74 ? 48 83 F9 ? 49 89 FE";
-constexpr const char* tf_inventory_do_preview_item =
-  "55 31 C0 48 89 E5 41 56 41 55 41 54 4C 8D A5 ? ? ? ? 53 0F B7 DE 4C 89 E7 48 8D 35 ? ? ? ?";
-constexpr const char* tf_inventory_craft_custom =
-  "55 48 8D 87 ? ? ? ? 48 89 E5 41 57 49 89 FF 41 56 41 55 4C 8D 6D ? 41 54 53 48 8D 9F ? ? ? ?";
 
 constexpr const char* get_party_client =
   "48 8D 05 ? ? ? ? C3 0F 1F 84 00 00 00 00 00 48 8B 05 ? ? ? ? C3";
