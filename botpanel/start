@@ -244,8 +244,10 @@ install_dependency_packages() {
             dbus
             dbus-x11
             firejail
+            g++-multilib
             iptables
             iproute2
+            libc6-dev-i386
             libopenal1
             nodejs
             npm
@@ -1124,6 +1126,28 @@ restart_panel_if_running() {
     rm -f /tmp/ncat-cathook-webpanel.pid 2>/dev/null || true
 }
 
+configure_steam_txtmode_preload() {
+    if [ "${CAT_STEAM_TXTMODE:-1}" = "0" ]; then
+        return
+    fi
+
+    local soname="libcatsteamtxtmode.so"
+    if ! ldconfig -p 2>/dev/null | grep -q "$soname"; then
+        return
+    fi
+
+    if [ -n "${STEAM_LD_PRELOAD:-}" ]; then
+        case ":$STEAM_LD_PRELOAD:" in
+            *":$soname:"*) ;;
+            *) STEAM_LD_PRELOAD="$soname:$STEAM_LD_PRELOAD" ;;
+        esac
+    else
+        STEAM_LD_PRELOAD="$soname"
+    fi
+    export STEAM_LD_PRELOAD
+    echo "Steam headless shim enabled: STEAM_LD_PRELOAD=$STEAM_LD_PRELOAD"
+}
+
 start_panel() {
     restart_panel_if_running
 
@@ -1217,6 +1241,7 @@ start_xpra
 start_xvfb
 start_ipc_server
 warn_if_steam_missing
+configure_steam_txtmode_preload
 print_ready
 start_panel
 print_panel_password

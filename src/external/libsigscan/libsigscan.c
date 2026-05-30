@@ -69,7 +69,10 @@ static bool does_module_match(const char* module_name, const char* path) {
     const char* file_name = strrchr(path, '/');
     file_name = (file_name != NULL) ? file_name + 1 : path;
 
-    return strcmp(file_name, module_name) == 0 || strstr(path, module_name) != NULL;
+    if (strchr(module_name, '/') != NULL)
+        return strstr(path, module_name) != NULL;
+
+    return strcmp(file_name, module_name) == 0;
 }
 
 /*

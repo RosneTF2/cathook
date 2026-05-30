@@ -18,6 +18,7 @@ V  o o  V  file: src/features/automation/nographics/nographics.cpp
 #include <cstring>
 #include <initializer_list>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "core/memory/byte_patch.hpp"
@@ -66,11 +67,15 @@ constexpr int studio_render_draw_static_prop_shadows_index = 32;
 constexpr int studio_render_add_decal_index = 36;
 constexpr int studio_render_add_shadow_index = 39;
 constexpr int studio_render_draw_model_array_index = 46;
-constexpr int mdl_cache_touch_all_data_index = 45;
+constexpr int mdl_cache_touch_all_data_index = 17;
+constexpr int mdl_cache_touch_all_data_extra_index = 45;
+constexpr const char* client_module_name = "tf/bin/linux64/client.so";
+constexpr int engine_frame_busy_wait_usleep_delta = 0x1A;
+constexpr int relative_jump_size = 5;
+constexpr int fs_async_err_fileopen = -1;
 
 using find_first_fn = const char* (*)(void*, const char*, file_find_handle_t*);
 using find_next_fn = const char* (*)(void*, file_find_handle_t);
-using async_read_multiple_fn = int (*)(void*, const void*, int, void*);
 using open_ex_fn = file_handle_t (*)(void*, const char*, const char*, unsigned int, const char*, char**);
 using read_file_ex_fn = int (*)(void*, const char*, const char*, void**, bool, bool, int, int, void*);
 using add_files_to_cache_fn = void (*)(void*, file_cache_handle_t, const char**, int, const char*);
@@ -92,7 +97,27 @@ using studio_render_draw_static_prop_shadows_fn = void (*)(void*, const void*, c
 using studio_render_add_decal_fn = void (*)(void*, void*, void*, void*, const void*, const void*, void*, float, int, bool, int);
 using studio_render_add_shadow_fn = void (*)(void*, void*, void*, void*, void*, void*);
 using studio_render_draw_model_array_fn = void (*)(void*, const void*, int, void*, int, int);
-using mdl_cache_touch_all_data_fn = bool (*)(void*, unsigned short);
+using mdl_cache_touch_all_data_fn = void (*)(void*, unsigned short);
+
+struct file_async_request;
+using fs_async_callback_fn = void (*)(const file_async_request&, int, int);
+
+struct file_async_request
+{
+  const char* filename;
+  void* data;
+  int offset;
+  int bytes;
+  fs_async_callback_fn callback;
+  void* context;
+  int priority;
+  unsigned int flags;
+  const char* path_id;
+  void* specific_async_file;
+  void* alloc_fn;
+};
+
+using async_read_multiple_fn = int (*)(void*, const file_async_request*, int, void*);
 
 struct convar_override
 {
@@ -129,6 +154,7 @@ studio_render_add_decal_fn studio_render_add_decal_original = nullptr;
 studio_render_add_shadow_fn studio_render_add_shadow_original = nullptr;
 studio_render_draw_model_array_fn studio_render_draw_model_array_original = nullptr;
 mdl_cache_touch_all_data_fn mdl_cache_touch_all_data_original = nullptr;
+mdl_cache_touch_all_data_fn mdl_cache_touch_all_data_extra_original = nullptr;
 
 void** file_system_vtable = nullptr;
 void** base_file_system_vtable = nullptr;
@@ -226,16 +252,6 @@ bool is_startup_patch_module(const char* library_path)
          name == "filesystem_steam.so";
 }
 
-bool should_apply_experimental_nographic_hooks()
-{
-  return config.misc.exploits.experimental_nographic_hooks;
-}
-
-bool should_apply_extra_render_patches()
-{
-  return should_apply_experimental_nographic_hooks();
-}
-
 void sync_nographics_toggles()
 {
 }
@@ -303,6 +319,7 @@ byte_patch replay_screenshot_patch{};
 byte_patch steam_rich_presence_patch{};
 byte_patch cl_decay_lights_patch{};
 byte_patch fps_max_min_patch{};
+byte_patch engine_frame_busy_wait_patch{};
 byte_patch mod_load_lighting_patch{};
 byte_patch mod_load_worldlights_patch{};
 byte_patch mod_load_texinfo_material_branch_patch{};
@@ -317,6 +334,7 @@ byte_patch r_draw_decals_all_0_patch{};
 byte_patch r_draw_decals_all_1_patch{};
 byte_patch v_render_view_patch{};
 byte_patch material_system_begin_frame_patch{};
+byte_patch material_system_swap_buffers_patch{};
 byte_patch startup_video_patch{};
 byte_patch video_mode_setup_startup_graphic_patch{};
 constexpr std::size_t replay_ui_nullcheck_patch_count = 9;
@@ -448,8 +466,6 @@ bool is_required_model_asset(const std::string_view filename, const std::string_
     return false;
   }
 
-  // Player/building/projectile model companions are not just graphics for us:
-  // model setup feeds hitboxes, bones, and some collideable bounds used by aim traces.
   return path_contains_any(filename, {
     "models/player/",
     "models/bots/",
@@ -649,9 +665,65 @@ const char* find_first_hook(void* this_ptr, const char* wildcard, file_find_hand
   return filename;
 }
 
-int async_read_multiple_hook(void* this_ptr, const void* requests, int request_count, void* controls)
+int async_read_multiple_hook(void* this_ptr, const file_async_request* requests, int request_count, void* controls)
 {
-  return async_read_multiple_original(this_ptr, requests, request_count, controls);
+  if (requests == nullptr || request_count <= 0)
+  {
+    return async_read_multiple_original(this_ptr, requests, request_count, controls);
+  }
+
+  bool has_blocked_request = false;
+  bool has_allowed_request = false;
+  for (int index = 0; index < request_count; ++index)
+  {
+    if (should_block_file(requests[index].filename))
+    {
+      has_blocked_request = true;
+    }
+    else
+    {
+      has_allowed_request = true;
+    }
+  }
+
+  if (!has_blocked_request)
+  {
+    return async_read_multiple_original(this_ptr, requests, request_count, controls);
+  }
+
+  if (has_allowed_request && controls != nullptr)
+  {
+    return async_read_multiple_original(this_ptr, requests, request_count, controls);
+  }
+
+  for (int index = 0; index < request_count; ++index)
+  {
+    if (should_block_file(requests[index].filename) && requests[index].callback != nullptr)
+    {
+      requests[index].callback(requests[index], 0, fs_async_err_fileopen);
+    }
+  }
+
+  if (!has_allowed_request)
+  {
+    return fs_async_err_fileopen;
+  }
+
+  std::vector<file_async_request> allowed_requests{};
+  allowed_requests.reserve(static_cast<std::size_t>(request_count));
+  for (int index = 0; index < request_count; ++index)
+  {
+    if (!should_block_file(requests[index].filename))
+    {
+      allowed_requests.emplace_back(requests[index]);
+    }
+  }
+
+  return async_read_multiple_original(
+    this_ptr,
+    allowed_requests.data(),
+    static_cast<int>(allowed_requests.size()),
+    controls);
 }
 
 file_handle_t open_ex_hook(void* this_ptr, const char* filename, const char* options, unsigned int flags, const char* path_id, char** resolved_filename)
@@ -875,11 +947,10 @@ void studio_render_draw_model_array_hook(void* this_ptr, const void* draw_info, 
   (void)flags;
 }
 
-bool mdl_cache_touch_all_data_hook(void* this_ptr, unsigned short handle)
+void mdl_cache_touch_all_data_hook(void* this_ptr, unsigned short handle)
 {
   (void)this_ptr;
   (void)handle;
-  return true;
 }
 
 void* resolve_rip_target(std::uint8_t* instruction, int displacement_offset, int instruction_size)
@@ -901,7 +972,7 @@ std::uint8_t* scan_module_patch(const char* module_name, const char* signature, 
 
 std::uint8_t* scan_client_patch(const char* signature, int offset)
 {
-  return scan_module_patch("client.so", signature, offset);
+  return scan_module_patch(client_module_name, signature, offset);
 }
 
 bool initialize_optional_patch(byte_patch& patch,
@@ -940,6 +1011,28 @@ bool initialize_core_render_patch(byte_patch& patch,
   return true;
 }
 
+bool initialize_relative_jump_patch(byte_patch& patch,
+                                    const char* module_name,
+                                    const char* signature,
+                                    int target_delta,
+                                    int patch_size,
+                                    const char* patch_name)
+{
+  std::uint8_t* patch_site = scan_module_patch(module_name, signature, 0);
+  if (patch_site == nullptr)
+  {
+    print("[nographics] optional patch scan failed name=%s module=%s\n", patch_name, module_name);
+    return false;
+  }
+
+  const std::int32_t relative = target_delta - relative_jump_size;
+  std::vector<std::uint8_t> patch_bytes(static_cast<std::size_t>(patch_size), 0x90);
+  patch_bytes[0] = 0xE9;
+  std::memcpy(patch_bytes.data() + 1, &relative, sizeof(relative));
+  patch = byte_patch(patch_site, std::move(patch_bytes));
+  return true;
+}
+
 void initialize_engine_render_patches()
 {
   if (engine_render_patches_initialized || !module_is_loaded("engine.so"))
@@ -952,6 +1045,7 @@ void initialize_engine_render_patches()
   initialize_optional_patch(video_mode_setup_startup_graphic_patch, "engine.so", sigs::video_mode_setup_startup_graphic, 0, { 0xC3 }, "video_mode_setup_startup_graphic");
   initialize_optional_patch(cl_decay_lights_patch, "engine.so", sigs::cl_decay_lights, 0, { 0xC3 }, "cl_decay_lights");
   initialize_optional_patch(fps_max_min_patch, "engine.so", sigs::engine_fps_max_min_clamp, 7, { 0x90, 0xE9 }, "engine_fps_max_min_clamp");
+  initialize_relative_jump_patch(engine_frame_busy_wait_patch, "engine.so", sigs::engine_frame_busy_wait, engine_frame_busy_wait_usleep_delta, 5, "engine_frame_busy_wait");
   initialize_optional_patch(mod_load_lighting_patch, "engine.so", sigs::mod_load_lighting, 0, { 0x31, 0xC0, 0xC3 }, "mod_load_lighting");
   initialize_optional_patch(mod_load_worldlights_patch, "engine.so", sigs::mod_load_worldlights, 0, { 0x31, 0xC0, 0xC3 }, "mod_load_worldlights");
   initialize_optional_patch(
@@ -982,22 +1076,24 @@ void initialize_materialsystem_render_patches()
 
   materialsystem_render_patches_initialized = true;
   initialize_optional_patch(material_system_begin_frame_patch, "materialsystem.so", sigs::material_system_begin_frame, 0, { 0xC3 }, "material_system_begin_frame");
+  initialize_optional_patch(material_system_swap_buffers_patch, "materialsystem.so", sigs::material_system_swap_buffers, 0, { 0xC3 }, "material_system_swap_buffers");
 }
 
 void initialize_client_textmode_cpu_patches()
 {
-  if (client_textmode_cpu_patches_initialized || !module_is_loaded("client.so"))
+  if (client_textmode_cpu_patches_initialized || !module_is_loaded(client_module_name))
   {
     return;
   }
 
-  client_textmode_cpu_patches_initialized = true;
-  initialize_optional_patch(ragdoll_lru_update_patch, "client.so", sigs::client_ragdoll_lru_update, 0, { 0xC3 }, "client_ragdoll_lru_update");
-  initialize_optional_patch(particle_mgr_simulate_undrawn_patch, "client.so", sigs::client_particle_mgr_simulate_undrawn, 0, { 0xC3 }, "client_particle_mgr_simulate_undrawn");
-  initialize_optional_patch(temp_ents_update_patch, "client.so", sigs::client_temp_ents_update, 0, { 0xC3 }, "client_temp_ents_update");
-  initialize_optional_patch(rope_manager_draw_render_cache_patch, "client.so", sigs::client_rope_manager_draw_render_cache, 0, { 0xC3 }, "client_rope_manager_draw_render_cache");
-  initialize_optional_patch(init_caption_dictionary_patch, "client.so", sigs::client_init_caption_dictionary, 0, { 0x31, 0xC0, 0xC3 }, "client_init_caption_dictionary");
-  initialize_optional_patch(parse_particle_effects_map_patch, "client.so", sigs::client_parse_particle_effects_map, 0, { 0xC3 }, "client_parse_particle_effects_map");
+  bool initialized_any_patch = false;
+  initialized_any_patch = initialize_optional_patch(ragdoll_lru_update_patch, client_module_name, sigs::client_ragdoll_lru_update, 0, { 0xC3 }, "client_ragdoll_lru_update") || initialized_any_patch;
+  initialized_any_patch = initialize_optional_patch(particle_mgr_simulate_undrawn_patch, client_module_name, sigs::client_particle_mgr_simulate_undrawn, 0, { 0xC3 }, "client_particle_mgr_simulate_undrawn") || initialized_any_patch;
+  initialized_any_patch = initialize_optional_patch(temp_ents_update_patch, client_module_name, sigs::client_temp_ents_update, 0, { 0xC3 }, "client_temp_ents_update") || initialized_any_patch;
+  initialized_any_patch = initialize_optional_patch(rope_manager_draw_render_cache_patch, client_module_name, sigs::client_rope_manager_draw_render_cache, 0, { 0xC3 }, "client_rope_manager_draw_render_cache") || initialized_any_patch;
+  initialized_any_patch = initialize_optional_patch(init_caption_dictionary_patch, client_module_name, sigs::client_init_caption_dictionary, 0, { 0x31, 0xC0, 0xC3 }, "client_init_caption_dictionary") || initialized_any_patch;
+  initialized_any_patch = initialize_optional_patch(parse_particle_effects_map_patch, client_module_name, sigs::client_parse_particle_effects_map, 0, { 0xC3 }, "client_parse_particle_effects_map") || initialized_any_patch;
+  client_textmode_cpu_patches_initialized = initialized_any_patch;
 }
 
 void initialize_optional_render_patches()
@@ -1013,6 +1109,7 @@ void restore_optional_render_patches()
   video_mode_setup_startup_graphic_patch.restore();
   cl_decay_lights_patch.restore();
   fps_max_min_patch.restore();
+  engine_frame_busy_wait_patch.restore();
   mod_load_lighting_patch.restore();
   mod_load_worldlights_patch.restore();
   mod_load_texinfo_material_branch_patch.restore();
@@ -1027,6 +1124,7 @@ void restore_optional_render_patches()
   r_draw_decals_all_1_patch.restore();
   v_render_view_patch.restore();
   material_system_begin_frame_patch.restore();
+  material_system_swap_buffers_patch.restore();
   ragdoll_lru_update_patch.restore();
   particle_mgr_simulate_undrawn_patch.restore();
   temp_ents_update_patch.restore();
@@ -1061,6 +1159,7 @@ bool apply_optional_render_patches()
   applied_any_patch = apply_optional_patch(video_mode_setup_startup_graphic_patch, "video_mode_setup_startup_graphic") || applied_any_patch;
   applied_any_patch = apply_optional_patch(cl_decay_lights_patch, "cl_decay_lights") || applied_any_patch;
   applied_any_patch = apply_optional_patch(fps_max_min_patch, "engine_fps_max_min_clamp") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(engine_frame_busy_wait_patch, "engine_frame_busy_wait") || applied_any_patch;
   applied_any_patch = apply_optional_patch(mod_load_lighting_patch, "mod_load_lighting") || applied_any_patch;
   applied_any_patch = apply_optional_patch(mod_load_worldlights_patch, "mod_load_worldlights") || applied_any_patch;
   applied_any_patch = apply_optional_patch(mod_load_texinfo_material_branch_patch, "mod_load_texinfo_material_branch") || applied_any_patch;
@@ -1075,6 +1174,7 @@ bool apply_optional_render_patches()
   applied_any_patch = apply_optional_patch(r_draw_decals_all_1_patch, "r_draw_decals_all_1") || applied_any_patch;
   applied_any_patch = apply_optional_patch(v_render_view_patch, "v_render_view") || applied_any_patch;
   applied_any_patch = apply_optional_patch(material_system_begin_frame_patch, "material_system_begin_frame") || applied_any_patch;
+  applied_any_patch = apply_optional_patch(material_system_swap_buffers_patch, "material_system_swap_buffers") || applied_any_patch;
   applied_any_patch = apply_optional_patch(ragdoll_lru_update_patch, "client_ragdoll_lru_update") || applied_any_patch;
   applied_any_patch = apply_optional_patch(particle_mgr_simulate_undrawn_patch, "client_particle_mgr_simulate_undrawn") || applied_any_patch;
   applied_any_patch = apply_optional_patch(temp_ents_update_patch, "client_temp_ents_update") || applied_any_patch;
@@ -1194,7 +1294,7 @@ bool initialize_extra_crashfix_patches()
   }
 
   if (initialize_optional_patch(studio_render_draw_model_wrapper_patch,
-                                "client.so",
+                                client_module_name,
                                 sigs::studio_render_draw_model_wrapper,
                                 0,
                                 { 0xC3 },
@@ -1204,7 +1304,7 @@ bool initialize_extra_crashfix_patches()
   }
 
   if (initialize_optional_patch(econ_panel_flex_primary_patch,
-                                "client.so",
+                                client_module_name,
                                 sigs::client_econ_panel_flex_primary,
                                 0,
                                 { 0x31, 0xC0, 0xC3 },
@@ -1214,7 +1314,7 @@ bool initialize_extra_crashfix_patches()
   }
 
   if (initialize_optional_patch(econ_panel_flex_attachments_patch,
-                                "client.so",
+                                client_module_name,
                                 sigs::client_econ_panel_flex_attachments,
                                 0,
                                 { 0x31, 0xC0, 0xC3 },
@@ -1264,7 +1364,7 @@ bool initialize_render_patches()
     return render_patches_ready;
   }
 
-  if (!module_is_loaded("client.so"))
+  if (!module_is_loaded(client_module_name))
   {
     return false;
   }
@@ -1274,25 +1374,25 @@ bool initialize_render_patches()
   std::size_t core_patch_count = 0;
   // Keep animation events alive in textmode. Stubbing this can leave client animation
   // state stale enough to break hitscan hitbox alignment.
-  if (initialize_core_render_patch(particle_create_patch, "client.so", sigs::particle_property_create, 0, { 0x31, 0xC0, 0xC3 }, "particle_property_create"))
+  if (initialize_core_render_patch(particle_create_patch, client_module_name, sigs::particle_property_create, 0, { 0x31, 0xC0, 0xC3 }, "particle_property_create"))
   {
     ++core_patch_count;
   }
-  if (initialize_core_render_patch(particle_precache_patch, "client.so", sigs::particle_system_precache, 0, { 0x31, 0xC0, 0xC3 }, "particle_system_precache"))
+  if (initialize_core_render_patch(particle_precache_patch, client_module_name, sigs::particle_system_precache, 0, { 0x31, 0xC0, 0xC3 }, "particle_system_precache"))
   {
     ++core_patch_count;
   }
-  if (initialize_core_render_patch(particle_effect_create_patch, "client.so", sigs::particle_effect_create_event, 0, { 0x31, 0xC0, 0xC3 }, "particle_effect_create_event"))
+  if (initialize_core_render_patch(particle_effect_create_patch, client_module_name, sigs::particle_effect_create_event, 0, { 0x31, 0xC0, 0xC3 }, "particle_effect_create_event"))
   {
     ++core_patch_count;
   }
-  if (initialize_core_render_patch(view_render_patch, "client.so", sigs::view_render_render, 0, { 0xC3 }, "view_render_render"))
+  if (initialize_core_render_patch(view_render_patch, client_module_name, sigs::view_render_render, 0, { 0xC3 }, "view_render_render"))
   {
     ++core_patch_count;
   }
 
-  initialize_optional_patch(replay_screenshot_patch, "client.so", sigs::replay_screenshot_render, 0, { 0xB0, 0x01, 0xC3 }, "replay_screenshot_render");
-  initialize_optional_patch(steam_rich_presence_patch, "client.so", sigs::client_update_steam_rich_presence, 0, { 0xC3 }, "client_update_steam_rich_presence");
+  initialize_optional_patch(replay_screenshot_patch, client_module_name, sigs::replay_screenshot_render, 0, { 0xB0, 0x01, 0xC3 }, "replay_screenshot_render");
+  initialize_optional_patch(steam_rich_presence_patch, client_module_name, sigs::client_update_steam_rich_presence, 0, { 0xC3 }, "client_update_steam_rich_presence");
   initialize_replay_ui_nullcheck_patches();
   initialize_extra_crashfix_patches();
 
@@ -1300,6 +1400,7 @@ bool initialize_render_patches()
   if (!render_patches_ready)
   {
     print("[nographics] no core render patches initialized\n");
+    render_patches_initialized = false;
   }
 
   return render_patches_ready;
@@ -1308,13 +1409,7 @@ bool initialize_render_patches()
 void apply_render_patches()
 {
   const bool core_patches_ready = initialize_render_patches();
-  const bool experimental_hooks_enabled = should_apply_experimental_nographic_hooks();
   bool ok = true;
-
-  if (!experimental_hooks_enabled)
-  {
-    restore_extra_crashfix_patches();
-  }
 
   if (core_patches_ready)
   {
@@ -1329,17 +1424,14 @@ void apply_render_patches()
       ok = apply_render_patch_if_valid(patch, "replay_ui_nullcheck") && ok;
     }
 
-    if (experimental_hooks_enabled)
+    for (byte_patch& patch : character_info_command_patches)
     {
-      for (byte_patch& patch : character_info_command_patches)
-      {
-        ok = apply_render_patch_if_valid(patch, "character_info_command") && ok;
-      }
-      ok = apply_render_patch_if_valid(econ_item_definition_index_patch, "econ_item_definition_index") && ok;
-      ok = apply_render_patch_if_valid(studio_render_draw_model_wrapper_patch, "studio_render_draw_model_wrapper") && ok;
-      ok = apply_render_patch_if_valid(econ_panel_flex_primary_patch, "client_econ_panel_flex_primary") && ok;
-      ok = apply_render_patch_if_valid(econ_panel_flex_attachments_patch, "client_econ_panel_flex_attachments") && ok;
+      ok = apply_render_patch_if_valid(patch, "character_info_command") && ok;
     }
+    ok = apply_render_patch_if_valid(econ_item_definition_index_patch, "econ_item_definition_index") && ok;
+    ok = apply_render_patch_if_valid(studio_render_draw_model_wrapper_patch, "studio_render_draw_model_wrapper") && ok;
+    ok = apply_render_patch_if_valid(econ_panel_flex_primary_patch, "client_econ_panel_flex_primary") && ok;
+    ok = apply_render_patch_if_valid(econ_panel_flex_attachments_patch, "client_econ_panel_flex_attachments") && ok;
   }
 
   if (!ok)
@@ -1351,14 +1443,7 @@ void apply_render_patches()
     return;
   }
 
-  if (should_apply_extra_render_patches())
-  {
-    apply_optional_render_patches();
-  }
-  else
-  {
-    restore_optional_render_patches();
-  }
+  apply_optional_render_patches();
 
   render_patches_applied = render_patches_applied || core_patches_ready;
 }
@@ -1386,14 +1471,14 @@ void enable_bone_setup_attachment_matrices_guard()
 {
   if (bone_setup_attachment_matrices_hooked ||
       bone_setup_attachment_matrices_hook_failed ||
-      !module_is_loaded("client.so"))
+      !module_is_loaded(client_module_name))
   {
     return;
   }
 
   bone_setup_attachment_matrices_original =
     reinterpret_cast<bone_setup_attachment_matrices_fn>(
-      sigscan_module("client.so", sigs::bone_setup_attachment_matrices));
+      sigscan_module(client_module_name, sigs::bone_setup_attachment_matrices));
   if (bone_setup_attachment_matrices_original == nullptr)
   {
     bone_setup_attachment_matrices_hook_failed = true;
@@ -1709,11 +1794,17 @@ void enable_mdl_cache_touch_all_data_hook()
 
   mdl_cache_vtable = *reinterpret_cast<void***>(mdl_cache);
 
-  const bool ok = hook_vtable(
+  bool ok = true;
+  ok &= hook_vtable(
     mdl_cache_vtable,
     mdl_cache_touch_all_data_index,
     reinterpret_cast<void*>(mdl_cache_touch_all_data_hook),
     &mdl_cache_touch_all_data_original);
+  ok &= hook_vtable(
+    mdl_cache_vtable,
+    mdl_cache_touch_all_data_extra_index,
+    reinterpret_cast<void*>(mdl_cache_touch_all_data_hook),
+    &mdl_cache_touch_all_data_extra_original);
 
   if (!ok)
   {
@@ -1737,10 +1828,15 @@ void disable_mdl_cache_touch_all_data_hook()
   {
     write_to_table(mdl_cache_vtable, mdl_cache_touch_all_data_index, reinterpret_cast<void*>(mdl_cache_touch_all_data_original));
   }
+  if (mdl_cache_touch_all_data_extra_original != nullptr)
+  {
+    write_to_table(mdl_cache_vtable, mdl_cache_touch_all_data_extra_index, reinterpret_cast<void*>(mdl_cache_touch_all_data_extra_original));
+  }
 
   mdl_cache_touch_all_data_hooked = false;
   mdl_cache_vtable = nullptr;
   mdl_cache_touch_all_data_original = nullptr;
+  mdl_cache_touch_all_data_extra_original = nullptr;
 }
 
 void enable_file_system_hooks()
@@ -1834,12 +1930,12 @@ void resolve_game_file_system_interface()
     game_file_system = static_cast<file_system*>(get_interface("./bin/linux64/filesystem_steam.so", "VFileSystem022"));
   }
 
-  if (game_file_system != nullptr || !module_is_loaded("client.so"))
+  if (game_file_system != nullptr || !module_is_loaded(client_module_name))
   {
     return;
   }
 
-  auto* match = reinterpret_cast<std::uint8_t*>(sigscan_module("client.so", sigs::client_file_system));
+  auto* match = reinterpret_cast<std::uint8_t*>(sigscan_module(client_module_name, sigs::client_file_system));
   if (match != nullptr)
   {
     game_file_system = *reinterpret_cast<file_system**>(resolve_rip_target(match + 15, 3, 7));
@@ -1884,7 +1980,6 @@ void initialize()
   {
     config.misc.exploits.null_graphics = true;
     config.misc.exploits.null_graphics_render_stubs = true;
-    config.misc.exploits.experimental_nographic_hooks = true;
   }
 
   resolve_game_file_system_interface();
@@ -1895,7 +1990,7 @@ void initialize()
     return;
   }
 
-  if (!initialized && module_is_loaded("client.so"))
+  if (!initialized && module_is_loaded(client_module_name))
   {
     print("[nographics] VFileSystem022 is missing\n");
     initialized = true;
@@ -1963,31 +2058,18 @@ void update()
   initialize();
 
   const bool enabled = textmode_build || config.misc.exploits.null_graphics;
-  const bool experimental_hooks_enabled = should_apply_experimental_nographic_hooks();
   if (enabled)
   {
     apply_nographics_convar_overrides();
     resolve_material_system_interface();
-    if (experimental_hooks_enabled)
-    {
-      resolve_studio_render_interface();
-      resolve_mdl_cache_interface();
-      enable_texture_load_hook();
-      enable_file_system_hooks();
-      enable_material_system_render_target_hooks();
-      enable_studio_render_hooks();
-      enable_mdl_cache_touch_all_data_hook();
-      enable_bone_setup_attachment_matrices_guard();
-    }
-    else
-    {
-      disable_studio_render_hooks();
-      disable_material_system_render_target_hooks();
-      disable_mdl_cache_touch_all_data_hook();
-      disable_texture_load_hook();
-      disable_file_system_hooks();
-      disable_bone_setup_attachment_matrices_guard();
-    }
+    resolve_studio_render_interface();
+    resolve_mdl_cache_interface();
+    enable_texture_load_hook();
+    enable_file_system_hooks();
+    enable_material_system_render_target_hooks();
+    enable_studio_render_hooks();
+    enable_mdl_cache_touch_all_data_hook();
+    enable_bone_setup_attachment_matrices_guard();
     update_material_stub(true);
     if (textmode_build || config.misc.exploits.null_graphics_render_stubs)
     {

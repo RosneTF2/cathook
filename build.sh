@@ -112,7 +112,7 @@ restore_workspace_permissions() {
         return
     fi
 
-    for path in "$project_root/bin" "$project_root/obj" "$project_root/libs/funchook" "$project_root/botpanel/catbot-ipc-server-main/bin"; do
+    for path in "$project_root/bin" "$project_root/obj" "$project_root/libs/funchook" "$project_root/botpanel/catbot-ipc-server-main/bin" "$project_root/botpanel/cat-steamtxtmode/bin"; do
         if [ -e "$path" ]; then
             chown -R "$SUDO_UID:$SUDO_GID" "$path" 2>/dev/null || true
         fi
@@ -388,6 +388,10 @@ install_outputs() {
         done < <(find "$source_config_dir" -maxdepth 1 -type f -name '*.cat' -print0)
     fi
     run_as_root make SHELL="$(make_shell_path)" -C "$project_root/botpanel/catbot-ipc-server-main" REPO_ROOT="$project_root" INSTALL_DIR="$install_ipc_dir" install
+    if [ -x "$project_root/botpanel/cat-steamtxtmode/install.sh" ]; then
+        run_as_root env CATHOOK_ROOT="$install_root" bash "$project_root/botpanel/cat-steamtxtmode/install.sh" || \
+            echo "cat-steamtxtmode build/install failed; bots will run without the Steam shim." >&2
+    fi
     copy_assets "$install_assets_dir"
     fix_install_permissions
     echo "Installed Cat runtime to $install_root"

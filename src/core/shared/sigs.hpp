@@ -136,6 +136,8 @@ constexpr const char* cl_decay_lights =
   "55 48 8D 3D ? ? ? ? 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC ? E8 ? ? ? ? 66 0F EF C9";
 constexpr const char* engine_fps_max_min_clamp =
   "F3 0F 10 40 54 0F 2F 05 ? ? ? ? 0F 83 ? ? ? ? 48 8D 3D";
+constexpr const char* engine_frame_busy_wait =
+  "B8 D1 07 00 00 0F 1F 00 F3 90 F3 90 F3 90 F3 90 83 E8 01 75 F3";
 constexpr const char* mod_load_lighting =
   "55 48 89 E5 41 54 4C 8B 25 ? ? ? ? 53 48 63 37 85 F6 75 ? 49 C7 84 24 ? ? ? ? ? ? ? ?";
 constexpr const char* mod_load_worldlights =
@@ -164,6 +166,8 @@ constexpr const char* v_render_view =
   "55 31 C0 48 89 E5 41 56 41 55 41 54 53 48 83 EC 40 4C 8B 2D ? ? ? ? 48 C7 45 A0 00 00 00 00 49 8B 7D 18 48 85 FF 74 ? 48 83 EC 08 45 31 C0 31 C9 48 8D 05 ? ? ? ? 31 D2";
 constexpr const char* material_system_begin_frame =
   "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 89 FB 48 83 EC ? F3 0F 11 85 ? ? ? ?";
+constexpr const char* material_system_swap_buffers =
+  "55 31 C0 48 89 E5 41 56 41 55 41 54 53 48 89 FB 48 83 EC 20 4C 8B 25 ? ? ? ? 48 C7 45 C8 00 00 00 00 49 8B 7C 24 10 48 85 FF 74 50";
 constexpr const char* material_system_texture_load_bits =
   "55 48 89 E5 41 57 41 56 49 89 FE 41 55 49 89 D5 31 D2 41 54 53 48 89 F3 48 83 EC 68 4C 8B 25 ? ? ? ? 48 C7 45 ? ? ? ? ? 49 8B 04 24 48 85 C0 74";
 constexpr const char* material_system_get_scratch_vtf_texture =
@@ -223,15 +227,15 @@ constexpr const char* client_econ_panel_flex_attachments =
 constexpr const char* client_ragdoll_lru_update =
   "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 89 FB 48 83 EC 48 4C 8B 25 ? ? ? ? 48 C7 45 C8 00";
 constexpr const char* client_particle_mgr_simulate_undrawn =
-  "55 31 C0 48 89 E5 41 56 41 55 41 54 53 48 89 FB 48 83 EC 20 4C 8B 25 ? ? ? ? 48 C7 45 C8 00 00 00 00 49 8B 7C 24 18 48 85 FF 74 50 48 83 EC 08 45 31 C0 31 C9 48 8D 05 ? ? ? ? 31 D2 50 48 8D 05 ? ? ? ? 50 48 8D 05 ? ? ? ? 50 48 8D 05 ? ? ? ? 50 48 8D 75 C8 31 C0 68 CA 05 00 00";
+  "55 31 C0 48 89 E5 41 56 41 55 41 54 53 48 89 FB 48 83 EC 20 4C 8B 25 ? ? ? ? 48 C7 45 C8 00 00 00 00 49 8B 7C 24 18 48 85 FF 74 ? 48 83 EC 08 45 31 C0 31 C9 48 8D 05 ? ? ? ? 31 D2 50 48 8D 05 ? ? ? ? 50 48 8D 05 ? ? ? ? 50 48 8D 05 ? ? ? ? 50 48 8D 75 C8 31 C0 68 CA 05 00 00";
 constexpr const char* client_temp_ents_update =
-  "55 31 C0 48 89 E5 41 57 41 56 41 55 41 54 49 89 FC 53 48 83 EC 38 48 8B 1D ? ? ? ? 48 C7 45 B8 00 00 00 00 48 8B 7B 18 48 85 FF 74 4F 48 83 EC 08 45 31 C0 31 C9 48 8D 05 ? ? ? ? 31 D2 50 48 8D 05 ? ? ? ? 50 48 8D 05 ? ? ? ? 50 48 8D 05 ? ? ? ? 50 48 8D 75 B8 31 C0 68 34 09 00 00";
+  "55 31 C0 48 89 E5 41 57 41 56 41 55 41 54 49 89 FC 53 48 83 EC 38 48 8B 1D ? ? ? ? 48 C7 45 B8 00 00 00 00 48 8B 7B 18 48 85 FF 74 ? 48 83 EC 08 45 31 C0 31 C9 48 8D 05 ? ? ? ? 31 D2 50 48 8D 05 ? ? ? ? 50 48 8D 05 ? ? ? ? 50 48 8D 05 ? ? ? ? 50 48 8D 75 B8 31 C0 68 34 09 00 00";
 constexpr const char* client_rope_manager_draw_render_cache =
   "55 48 89 E5 41 57 49 89 FF 41 56 41 55 41 54 53 89 F3 48 81 EC A8 04 00 00 48 8B 05 ? ? ? ?";
 constexpr const char* client_init_caption_dictionary =
   "55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC B8 11 00 00 66 83 BF 2C 03";
 constexpr const char* client_parse_particle_effects_map =
-  "55 48 89 E5 41 56 41 55 49 89 FD BF 40 00 00 00 41 54 53 48 83 EC 10 E8";
+  "55 48 89 E5 41 56 41 55 49 89 FD BF 48 00 00 00 41 54 53 48 83 EC 10 E8 ? ? ? ? 48 8D 35 ? ? ? ? 48 89 C7 49 89 C4 E8 ? ? ? ? 48 8D 05 ? ? ? ? 48 8D 0D ? ? ? ? 4C 89 E7";
 
 } // namespace sigs
 

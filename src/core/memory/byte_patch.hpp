@@ -16,6 +16,7 @@ V  o o  V  file: src/core/memory/byte_patch.hpp
 #include <cstdint>
 #include <cstring>
 #include <initializer_list>
+#include <utility>
 #include <vector>
 
 #include <sys/mman.h>
@@ -31,6 +32,12 @@ public:
   byte_patch(void* target, std::initializer_list<std::uint8_t> patch_bytes)
       : target_(reinterpret_cast<std::uint8_t*>(target)),
         patch_bytes_(patch_bytes)
+  {
+  }
+
+  byte_patch(void* target, std::vector<std::uint8_t> patch_bytes)
+      : target_(reinterpret_cast<std::uint8_t*>(target)),
+        patch_bytes_(std::move(patch_bytes))
   {
   }
 

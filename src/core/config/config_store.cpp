@@ -383,7 +383,6 @@ void config_store::import_config(const Config& config)
     set_bool("misc.exploits.no_engine_sleep", config.misc.exploits.no_engine_sleep);
     set_bool("misc.exploits.null_graphics", config.misc.exploits.null_graphics);
     set_bool("misc.exploits.null_graphics_render_stubs", config.misc.exploits.null_graphics_render_stubs);
-    set_bool("misc.exploits.experimental_nographic_hooks", config.misc.exploits.experimental_nographic_hooks);
     set_bool("misc.exploits.keybind_indicator", keybind_indicator_enabled);
     set_float("misc.exploits.keybind_indicator_x", config.visuals.indicators.keybinds_x);
     set_float("misc.exploits.keybind_indicator_y", config.visuals.indicators.keybinds_y);
@@ -859,9 +858,6 @@ void config_store::export_config(Config& config) const
     config.misc.exploits.null_graphics_render_stubs = get_bool(
         "misc.exploits.null_graphics_render_stubs",
         config.misc.exploits.null_graphics_render_stubs);
-    config.misc.exploits.experimental_nographic_hooks = get_bool(
-        "misc.exploits.experimental_nographic_hooks",
-        config.misc.exploits.experimental_nographic_hooks);
 #if defined(CATHOOK_TEXTMODE) && CATHOOK_TEXTMODE
     config.misc.exploits.null_graphics = true;
     config.misc.exploits.null_graphics_render_stubs = true;
