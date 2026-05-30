@@ -798,6 +798,41 @@ ensure_user_namespaces() {
     } | run_as_root tee "$conf_path" >/dev/null
 }
 
+ensure_kernel_limits() {
+    local conf_path="/etc/sysctl.d/99-cathook-limits.conf"
+    local -a wanted=(
+        "fs.inotify.max_user_instances:8192"
+        "fs.inotify.max_user_watches:524288"
+        "fs.inotify.max_queued_events:65536"
+    )
+    local -a persist=()
+    local entry="" key="" floor="" proc_path="" current=""
+
+    for entry in "${wanted[@]}"; do
+        key="${entry%%:*}"
+        floor="${entry##*:}"
+        proc_path="/proc/sys/${key//.//}"
+        [ -e "$proc_path" ] || continue
+        persist+=("$key=$floor")
+        current="$(cat "$proc_path" 2>/dev/null || echo 0)"
+        case "$current" in
+            ''|*[!0-9]*) current=0 ;;
+        esac
+        if [ "$current" -lt "$floor" ]; then
+            run_as_root sysctl -w "$key=$floor" >/dev/null
+        fi
+    done
+
+    if [ "${#persist[@]}" -eq 0 ]; then
+        return
+    fi
+
+    {
+        echo "# Raised by ./botpanel/start so many bots can boot Steam at once."
+        printf '%s\n' "${persist[@]}"
+    } | run_as_root tee "$conf_path" >/dev/null
+}
+
 xpra_display_running() {
     local display_number="${display#:}"
     local lock_path="/tmp/.X${display_number}-lock"
@@ -1175,6 +1210,7 @@ ensure_accounts_file
 ensure_user_instances
 ensure_firejail_config
 ensure_user_namespaces
+ensure_kernel_limits
 ensure_utmp_file
 ensure_xpra_config
 start_xpra
